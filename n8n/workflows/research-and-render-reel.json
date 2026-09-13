@@ -610,6 +610,75 @@
       ]
     },
     {
+      "parameters": {
+        "jsCode": "const context = $items('Build Dialogue Audio and Subtitle Render Job')[0]?.json ?? {};\nconst topic = context.research?.recommended_topic ?? {};\nconst seoBrief = topic.seo_brief ?? {};\nconst dialogueLines = (context.dialogue || []).map((turn) => `${turn.speaker}: ${turn.text}`).join('\\n');\nconst prompt = `Write an Instagram Reel caption for a short animated dialogue video between Peter and Stewie about ${String(topic.tool_name ?? topic.topic ?? 'an AI developer tool')}.\\n\\nHook: ${topic.hook ?? ''}\\nOne-line value: ${topic.one_line_value ?? ''}\\n\\nDialogue:\\n${dialogueLines}\\n\\nExisting SEO keywords: ${(seoBrief.related_keywords || []).join(', ')}\\nExisting hashtag ideas: ${(seoBrief.hashtags || []).join(' ')}\\n\\nWrite a short, punchy caption (1-3 sentences, no hashtags inline) that hooks a developer scrolling Instagram, then 5-8 relevant hashtags. Reuse or refine the existing hashtag ideas above rather than inventing unrelated ones. No emojis unless they add real value. No stage directions.\\n\\nReturn ONLY JSON: {\"caption\":\"\",\"hashtags\":[\"#Tag1\",\"#Tag2\"]}`;\nreturn [{ json: { prompt, outputLocation: $json.outputLocation, seo_brief: seoBrief } }];"
+      },
+      "id": "instagram-caption-prompt",
+      "name": "Build Instagram Caption Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3360, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {"name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}"},
+            {"name": "anthropic-version", "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"},
+            {"name": "Content-Type", "value": "application/json"}
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 1024, messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "options": {
+          "response": {"response": {"fullResponse": true, "responseFormat": "json"}},
+          "timeout": 60000,
+          "neverError": true
+        }
+      },
+      "id": "instagram-caption-claude",
+      "name": "Write Instagram Caption with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3600, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const promptItem = $items('Build Instagram Caption Prompt')[0]?.json ?? {};\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nlet caption; let captionSource = 'seo_fallback';\nif (statusCode >= 200 && statusCode < 300 && text) {\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  const candidate = String(fenced?.[1] ?? text).trim();\n  try {\n    const parsed = JSON.parse(candidate);\n    const parsedCaption = String(parsed.caption ?? '').trim();\n    const hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.map((tag) => String(tag).trim()).filter(Boolean) : [];\n    if (parsedCaption && hashtags.length) { caption = `${parsedCaption}\\n\\n${hashtags.join(' ')}`; captionSource = 'claude'; }\n  } catch {}\n}\nif (!caption) {\n  const seoBrief = promptItem.seo_brief ?? {};\n  const description = String(seoBrief.description ?? '').trim();\n  const hashtags = Array.isArray(seoBrief.hashtags) ? seoBrief.hashtags : [];\n  caption = [description, hashtags.join(' ')].filter(Boolean).join('\\n\\n');\n}\nif (!caption) throw new Error('INSTAGRAM_CAPTION_UNAVAILABLE');\nreturn [{ json: { caption, captionSource, outputLocation: promptItem.outputLocation } }];"
+      },
+      "id": "route-instagram-caption",
+      "name": "Route Instagram Caption Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3840, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/publish/instagram",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{"name": "Content-Type", "value": "application/json"}]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { outputLocation: $json.outputLocation, caption: $json.caption } }}",
+        "options": {
+          "response": {"response": {"responseFormat": "json"}},
+          "timeout": 180000
+        }
+      },
+      "id": "instagram-publish",
+      "name": "Publish to Instagram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4080, 0]
+    },
+    {
       "id": "collect-script-images",
       "name": "Find and Download Script Images",
       "type": "n8n-nodes-base.httpRequest",
@@ -1024,6 +1093,18 @@
           }
         ]
       ]
+    },
+    "Render 9:16 Reel with Subtitles": {
+      "main": [[{"node": "Build Instagram Caption Prompt", "type": "main", "index": 0}]]
+    },
+    "Build Instagram Caption Prompt": {
+      "main": [[{"node": "Write Instagram Caption with Claude", "type": "main", "index": 0}]]
+    },
+    "Write Instagram Caption with Claude": {
+      "main": [[{"node": "Route Instagram Caption Result", "type": "main", "index": 0}]]
+    },
+    "Route Instagram Caption Result": {
+      "main": [[{"node": "Publish to Instagram", "type": "main", "index": 0}]]
     }
   },
   "active": false,
@@ -1031,5 +1112,5 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "500d2bdc-c4ca-4601-809b-8b3830da707c"
+  "versionId": "2bba3e61-9bc3-45a9-94da-1bd5f0c86647"
 }
