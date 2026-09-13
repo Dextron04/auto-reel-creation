@@ -90,6 +90,26 @@ test('Claude result router accepts useful text and falls back on exhausted credi
   const empty = run({statusCode: 200, body: {content: []}});
   assert.equal(empty[0].json.use_qwen_fallback, true);
   assert.match(empty[0].json.fallback_reason, /empty_response/);
+
+});
+
+test('research normalization accepts Claude fenced multiline JSON and Qwen NDJSON', () => {
+  const normalizeCode = nodeById.get('a0732238-b8e3-4919-add5-39e6eb9576c0').parameters.jsCode;
+  const research = {recommended_topic: {claims: [{statement: 'Useful'}]}};
+  const claude = new Function('$json', normalizeCode)({
+    response: `\`\`\`json\n${JSON.stringify(research, null, 2)}\n\`\`\`\nResearch notes complete.`,
+    research_provider: 'anthropic',
+    research_model: 'claude-haiku-4-5-20251001',
+  });
+  assert.deepEqual(claude[0].json.research, research);
+  assert.equal(claude[0].json.research_provider, 'anthropic');
+
+  const qwenStream = [
+    JSON.stringify({response: '{"recommended_topic":'}),
+    JSON.stringify({response: '{"claims":[{"statement":"Useful"}]}}'}),
+  ].join('\n');
+  const qwen = new Function('$json', normalizeCode)(qwenStream);
+  assert.deepEqual(qwen[0].json.research, research);
 });
 
 test('research prompt requests actionable developer and SEO output', () => {
@@ -168,7 +188,7 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.match(result[0].json.prompt, /"turns"/);
   assert.match(result[0].json.prompt, /Peter introduces/i);
   assert.match(result[0].json.prompt, /Stewie/i);
-  assert.match(result[0].json.prompt, /55–68 words/);
+  assert.match(result[0].json.prompt, /no strict upper word limit/);
   assert.match(result[0].json.prompt, /one primary tool/i);
   assert.match(result[0].json.prompt, /one sentence/i);
   assert.match(result[0].json.prompt, /do not combine unrelated products/i);
@@ -208,7 +228,11 @@ test('Claude dialogue router accepts text and falls back on credits, errors, or 
   const items = () => [promptItem];
   const run = (json) => new Function('$json', '$items', routeCode)(json, items);
 
-  const success = run({statusCode: 200, body: {model: 'claude-haiku-4-5-20251001', content: [{type: 'text', text: '{"turns":[]}'}]}});
+  const validTurns = Array.from({length: 6}, (_, index) => ({
+    speaker: index % 2 === 0 ? 'peter' : 'stewie',
+    text: 'This valid dialogue turn has exactly eight useful words.',
+  }));
+  const success = run({statusCode: 200, body: {model: 'claude-haiku-4-5-20251001', content: [{type: 'text', text: JSON.stringify({turns: validTurns})}]}});
   assert.equal(success[0].json.use_qwen_fallback, false);
   assert.equal(success[0].json.dialogue_provider, 'anthropic');
   assert.equal(success[0].json.research.recommended_topic.tool_name, 'Agent Kit');
@@ -221,6 +245,18 @@ test('Claude dialogue router accepts text and falls back on credits, errors, or 
   const empty = run({statusCode: 200, body: {content: []}});
   assert.equal(empty[0].json.use_qwen_fallback, true);
   assert.match(empty[0].json.fallback_reason, /empty_response/);
+
+  const overlongTurns = Array.from({length: 6}, (_, index) => ({
+    speaker: index % 2 === 0 ? 'peter' : 'stewie',
+    text: 'This deliberately long dialogue turn contains far more words than a short vertical video script would traditionally use and keeps adding detail because a longer reel is acceptable now.',
+  }));
+  const overlong = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: overlongTurns})}]}});
+  assert.equal(overlong[0].json.use_qwen_fallback, false, 'long dialogue is no longer rejected on word count');
+
+  const tooShortTurns = Array.from({length: 6}, (_, index) => ({speaker: index % 2 === 0 ? 'peter' : 'stewie', text: 'Too short.'}));
+  const tooShort = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: tooShortTurns})}]}});
+  assert.equal(tooShort[0].json.use_qwen_fallback, true);
+  assert.match(tooShort[0].json.fallback_reason, /invalid_dialogue/);
 });
 
 test('dialogue normalization emits alternating voice jobs and rejects bad ordering', () => {
@@ -252,6 +288,10 @@ test('dialogue normalization emits alternating voice jobs and rejects bad orderi
 
   const invalid = {response: JSON.stringify({...JSON.parse(valid.response), turns: JSON.parse(valid.response).turns.map((turn, index) => index === 1 ? {...turn, speaker: 'peter'} : turn)})};
   assert.throws(() => new Function('$json', normalizeNode.parameters.jsCode)(invalid), /DIALOGUE_SPEAKER_ORDER/);
+
+  const fenced = {response: `\`\`\`json\n${JSON.stringify(JSON.parse(valid.response), null, 2)}\n\`\`\`\nDialogue ready.`};
+  const fencedJobs = new Function('$json', normalizeNode.parameters.jsCode)(fenced);
+  assert.equal(fencedJobs.length, 6);
 });
 
 test('render job preserves script cues and research for image collection', () => {
