@@ -314,3 +314,42 @@ test('dialogue voice generation routes each turn to the matching configured voic
   assert.match(saveNode.parameters.fileName, /turn_index/);
   assert.match(saveNode.parameters.fileName, /speaker/);
 });
+
+test('Instagram caption prompt includes the tool context, dialogue, and JSON instruction', () => {
+  const promptNode = nodeById.get('instagram-caption-prompt');
+  assert.ok(promptNode, 'missing instagram-caption-prompt node');
+  const context = {json: {
+    research: {recommended_topic: {tool_name: 'Agent Kit', hook: 'Stop writing glue code', one_line_value: 'One interface for every coding agent', seo_brief: {related_keywords: ['agent kit'], hashtags: ['#AgentKit', '#DevTools']}}},
+    dialogue: [{speaker: 'peter', text: 'Meet Agent Kit.'}, {speaker: 'stewie', text: 'Why do I care?'}],
+  }};
+  const items = () => [context];
+  const result = new Function('$json', '$items', promptNode.parameters.jsCode)({outputLocation: '/output/reel-1.mp4'}, items);
+  assert.equal(result.length, 1);
+  assert.match(result[0].json.prompt, /Agent Kit/);
+  assert.match(result[0].json.prompt, /Meet Agent Kit\./);
+  assert.match(result[0].json.prompt, /Return ONLY JSON/);
+  assert.equal(result[0].json.outputLocation, '/output/reel-1.mp4');
+  assert.deepEqual(result[0].json.seo_brief.hashtags, ['#AgentKit', '#DevTools']);
+});
+
+test('Instagram caption router combines Claude output or falls back to the SEO brief', () => {
+  const routeNode = nodeById.get('route-instagram-caption');
+  assert.ok(routeNode, 'missing route-instagram-caption node');
+  const promptItem = {json: {outputLocation: '/output/reel-1.mp4', seo_brief: {description: 'Agent Kit gives every coding agent one interface.', hashtags: ['#AgentKit', '#DevTools', '#Coding']}}};
+  const items = () => [promptItem];
+  const run = (json) => new Function('$json', '$items', routeNode.parameters.jsCode)(json, items);
+
+  const success = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({caption: 'Stop writing glue code for every coding agent.', hashtags: ['#AgentKit', '#DevTools']})}]}});
+  assert.equal(success[0].json.captionSource, 'claude');
+  assert.match(success[0].json.caption, /Stop writing glue code/);
+  assert.match(success[0].json.caption, /#AgentKit #DevTools/);
+  assert.equal(success[0].json.outputLocation, '/output/reel-1.mp4');
+
+  const httpError = run({statusCode: 500, body: {error: {type: 'server_error'}}});
+  assert.equal(httpError[0].json.captionSource, 'seo_fallback');
+  assert.match(httpError[0].json.caption, /Agent Kit gives every coding agent one interface\./);
+  assert.match(httpError[0].json.caption, /#AgentKit #DevTools #Coding/);
+
+  const badJson = run({statusCode: 200, body: {content: [{type: 'text', text: 'Sure, here you go without json'}]}});
+  assert.equal(badJson[0].json.captionSource, 'seo_fallback');
+});
