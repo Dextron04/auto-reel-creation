@@ -1,0 +1,1035 @@
+{
+  "id": "Jucxmnu0gEU1C7gZ",
+  "name": "Research and Render Local AI Reel",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,17 * * *"
+            }
+          ]
+        }
+      },
+      "id": "304f3600-8466-40b4-b486-2cd58e563105",
+      "name": "Research Twice Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rankedItems = $input.all().map((item) => item.json).filter((item) => item.source_url);\nconst publisherCounts = new Map();\nconst sourceItems = [];\nfor (const item of rankedItems.sort((a, b) => b.trend_score - a.trend_score)) {\n  const count = publisherCounts.get(item.publisher) ?? 0;\n  if (count >= 6) continue;\n  publisherCounts.set(item.publisher, count + 1);\n  sourceItems.push(item);\n  if (sourceItems.length >= 45) break;\n}\nif (sourceItems.length < 5) throw new Error('RESEARCH_INSUFFICIENT_TOOL_SIGNALS');\nconst prompt = `You are an evidence-first researcher and SEO strategist for short videos aimed at software developers. Analyze only the RANKED SOURCE MATERIAL below. Never invent product capabilities, adoption numbers, pricing, release dates, or market claims.\n\nFind new AI tools and developer infrastructure that materially make developers faster or safer. Prioritize coding agents, AI IDEs, agent harnesses, MCP and tool-calling systems, automation platforms, local AI, testing and evals, observability and tracing, deployment tools, open-source frameworks, SDKs, and APIs. Explain the concrete developer workflow improved: what painful step changes, who benefits, and how a developer would use the tool.\n\nUse trend_score as a discovery signal, not proof. Prefer recent releases, evidence from authoritative sources, repeated mentions across independent publishers, specific capabilities, and topics with clear search intent. Reject generic AI news, consumer-only apps, vague thought leadership, unsupported hype, token-price speculation, and tools without a concrete developer use case.\n\nChoose exactly 5 candidates and one recommendation suitable for a factual, fast-paced 30-second vertical reel. Each candidate must have at least one source URL; the recommendation should use two independent sources when available. Every factual claim must cite an exact source_url from the material.\n\nCreate an SEO brief around how developers would search for the tool. Use natural keywords, not keyword stuffing. Titles should promise a concrete benefit without fake urgency. Hashtags must be relevant and limited to 5-8.\n\nReturn ONLY valid JSON matching this schema:\n{\"recommended_topic\":{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"one_line_value\":\"\",\"developer_workflow\":\"\",\"who_it_helps\":\"\",\"why_now\":\"\",\"hook\":\"\",\"why_it_matters\":\"\",\"visual_angle\":\"\",\"trend_score\":0,\"claims\":[{\"claim_id\":\"c1\",\"statement\":\"\",\"source_url\":\"\",\"publisher\":\"\",\"published_at\":\"\",\"retrieved_at\":\"${new Date().toISOString()}\",\"confidence\":0.0,\"verification_notes\":\"\"}],\"seo_brief\":{\"primary_keyword\":\"\",\"related_keywords\":[\"\"],\"search_intent\":\"informational|commercial|tutorial\",\"title_options\":[\"\",\"\",\"\"],\"description\":\"\",\"hashtags\":[\"\"]}},\"candidates\":[{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"developer_workflow\":\"\",\"why_now\":\"\",\"trend_score\":0,\"source_urls\":[\"\"]}],\"research_policy\":{\"requires_human_review\":true,\"content_disclosure\":\"AI-assisted research and narration; edited visuals.\"}}\n\nRANKED SOURCE MATERIAL:\n${JSON.stringify(sourceItems)}`;\nreturn [{ json: { prompt, source_count: sourceItems.length, sources: sourceItems, scoring_version: 'developer-tools-v1' } }];"
+      },
+      "id": "af5f69ff-5d43-439d-80bf-b74085e60214",
+      "name": "Build Research Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://openai.com/news/rss.xml"
+      },
+      "id": "rss-openai",
+      "name": "Fetch OpenAI News",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://blog.google/technology/ai/rss/"
+      },
+      "id": "rss-google-ai",
+      "name": "Fetch Google AI News",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://huggingface.co/blog/feed.xml"
+      },
+      "id": "rss-huggingface",
+      "name": "Fetch Hugging Face News",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://github.blog/changelog/feed/"
+      },
+      "id": "rss-github-changelog",
+      "name": "Fetch GitHub Changelog",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://github.blog/ai-and-ml/feed/"
+      },
+      "id": "rss-github-ai",
+      "name": "Fetch GitHub AI and ML",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://dev.to/feed/tag/ai"
+      },
+      "id": "rss-dev-ai",
+      "name": "Fetch DEV AI Tools",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://www.producthunt.com/feed"
+      },
+      "id": "rss-product-hunt",
+      "name": "Fetch Product Hunt Launches",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        1000
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://aws.amazon.com/blogs/machine-learning/feed/"
+      },
+      "id": "rss-aws-ml",
+      "name": "Fetch AWS Machine Learning",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        1200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://vercel.com/atom"
+      },
+      "id": "rss-vercel",
+      "name": "Fetch Vercel Platform Updates",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        1400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://blog.jetbrains.com/idea/feed/"
+      },
+      "id": "rss-jetbrains-idea",
+      "name": "Fetch JetBrains IDE Updates",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        1600
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "append",
+        "numberInputs": 10
+      },
+      "id": "merge-research-feeds",
+      "name": "Merge Research Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawItems = $input.all().map((item) => item.json);\nconst now = Date.now();\nconst developerTerms = ['developer', 'coding', 'code', 'agent', 'agentic', 'mcp', 'model context protocol', 'ide', 'cli', 'sdk', 'api', 'automation', 'workflow', 'testing', 'evaluation', 'observability', 'open source', 'framework', 'debug', 'deploy'];\nconst harnessTerms = ['agent harness', 'orchestration', 'tool calling', 'computer use', 'memory', 'evals', 'sandbox', 'guardrail', 'tracing', 'prompt management'];\nconst authorityWeights = { 'openai.com': 18, 'github.blog': 18, 'huggingface.co': 17, 'blog.google': 17, 'aws.amazon.com': 16, 'vercel.com': 15, 'blog.jetbrains.com': 15, 'producthunt.com': 10, 'dev.to': 8 };\nconst normalized = [];\nconst seen = new Set();\nfor (const item of rawItems) {\n  const sourceUrl = String(item.link ?? item.guid ?? '').trim();\n  if (!sourceUrl || seen.has(sourceUrl)) continue;\n  seen.add(sourceUrl);\n  const publisher = (sourceUrl.split('://')[1] ?? '').split('/')[0].split('?')[0].split('#')[0].replace(/^www\\./, '').toLowerCase() || 'unknown';\n  const title = String(item.title ?? '').trim();\n  const summary = String(item.contentSnippet ?? item.content ?? item.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 900);\n  const searchable = `${title} ${summary}`.toLowerCase();\n  const publishedAt = item.isoDate ?? item.pubDate ?? item.updated ?? '';\n  const publishedMs = Date.parse(publishedAt);\n  const ageDays = Number.isFinite(publishedMs) ? Math.max(0, (now - publishedMs) / 86400000) : 365;\n  const recencyScore = ageDays <= 2 ? 30 : ageDays <= 7 ? 24 : ageDays <= 14 ? 17 : ageDays <= 30 ? 10 : 3;\n  const developerHits = developerTerms.filter((term) => searchable.includes(term));\n  const harnessHits = harnessTerms.filter((term) => searchable.includes(term));\n  const developerRelevance = Math.min(30, developerHits.length * 5 + harnessHits.length * 4);\n  const authorityScore = Object.entries(authorityWeights).find(([domain]) => publisher.includes(domain))?.[1] ?? 6;\n  const toolTokens = [...new Set(title.toLowerCase().match(/[a-z][a-z0-9+.-]{2,}/g) ?? [])].filter((token) => !developerTerms.includes(token) && !['with', 'from', 'your', 'this', 'that', 'the', 'and', 'for', 'new'].includes(token));\n  normalized.push({ title, summary, source_url: sourceUrl, publisher, published_at: publishedAt, age_days: Math.round(ageDays * 10) / 10, recency_score: recencyScore, developer_relevance: developerRelevance, authority_score: authorityScore, matched_developer_terms: developerHits, matched_harness_terms: harnessHits, tool_tokens: toolTokens.slice(0, 8) });\n}\nconst tokenSources = new Map();\nfor (const item of normalized) for (const token of item.tool_tokens) {\n  if (!tokenSources.has(token)) tokenSources.set(token, new Set());\n  tokenSources.get(token).add(item.publisher);\n}\nfor (const item of normalized) {\n  const crossSourceMentions = Math.max(1, ...item.tool_tokens.map((token) => tokenSources.get(token)?.size ?? 1));\n  const momentumScore = Math.min(22, (crossSourceMentions - 1) * 7 + Math.min(8, item.tool_tokens.length));\n  item.cross_source_mentions = crossSourceMentions;\n  item.momentum_score = momentumScore;\n  item.trend_score = Math.min(100, item.recency_score + item.developer_relevance + item.authority_score + momentumScore);\n  item.seo_terms = [...new Set([...item.matched_developer_terms, ...item.matched_harness_terms, ...item.tool_tokens.slice(0, 4)])].slice(0, 10);\n}\nconst ranked = normalized.filter((item) => item.developer_relevance >= 5).sort((a, b) => b.trend_score - a.trend_score).slice(0, 60);\nif (ranked.length < 5) throw new Error('INSUFFICIENT_DEVELOPER_TOOL_SIGNALS');\nreturn ranked.map((json) => ({ json }));"
+      },
+      "id": "score-developer-tool-trends",
+      "name": "Score Developer Tool Trends",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 4096), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000,
+          "neverError": true
+        }
+      },
+      "id": "research-claude",
+      "name": "Research with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const originalPrompt = $items('Build Research Prompt')[0]?.json?.prompt ?? '';\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nconst errorType = String(body?.error?.type ?? body?.type ?? '').trim();\nif (statusCode >= 200 && statusCode < 300 && text) {\n  return [{ json: { use_qwen_fallback: false, response: text, research_provider: 'anthropic', research_model: body?.model ?? 'claude', prompt: originalPrompt } }];\n}\nconst fallbackReason = statusCode < 200 || statusCode >= 300 ? `${statusCode}_${errorType || 'http_error'}` : 'empty_response';\nreturn [{ json: { use_qwen_fallback: true, prompt: originalPrompt, research_provider: 'qwen-fallback', fallback_reason: fallbackReason } }];"
+      },
+      "id": "route-claude-research",
+      "name": "Route Claude Research Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "claude-research-success",
+              "leftValue": "={{$json.use_qwen_fallback}}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "claude-research-available",
+      "name": "Claude Research Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 4096), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000,
+          "neverError": true
+        }
+      },
+      "id": "dialogue-claude",
+      "name": "Write Peter and Stewie Dialogue with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const promptItem = $items('Build Peter and Stewie Dialogue Prompt')[0]?.json ?? {};\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nconst errorType = String(body?.error?.type ?? body?.type ?? '').trim();\nif (statusCode >= 200 && statusCode < 300 && text) {\n  return [{ json: { use_qwen_fallback: false, response: text, dialogue_provider: 'anthropic', dialogue_model: body?.model ?? 'claude', prompt: promptItem.prompt, research: promptItem.research, seo_brief: promptItem.seo_brief } }];\n}\nconst fallbackReason = statusCode < 200 || statusCode >= 300 ? `${statusCode}_${errorType || 'http_error'}` : 'empty_response';\nreturn [{ json: { use_qwen_fallback: true, prompt: promptItem.prompt, research: promptItem.research, seo_brief: promptItem.seo_brief, dialogue_provider: 'qwen-fallback', fallback_reason: fallbackReason } }];"
+      },
+      "id": "route-claude-dialogue",
+      "name": "Route Claude Dialogue Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "claude-dialogue-success",
+              "leftValue": "={{$json.use_qwen_fallback}}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "claude-dialogue-available",
+      "name": "Claude Dialogue Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ollama.dextron04.in/api/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "CF-Access-Client-Id",
+              "value": "={{$env.OLLAMA_CF_ACCESS_CLIENT_ID}}"
+            },
+            {
+              "name": "CF-Access-Client-Secret",
+              "value": "={{$env.OLLAMA_CF_ACCESS_CLIENT_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'tushin-agent:latest', prompt: $json.prompt, stream: true, options: { temperature: 0.2 } } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "id": "4af79882-30e9-4996-84a2-b4a0e62e818d",
+      "name": "Research with Local Qwen Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nlet raw = '';\nif (typeof payload === 'string') raw = payload;\nelse if (typeof payload.body === 'string') raw = payload.body;\nelse if (typeof payload.data === 'string') raw = payload.data;\nelse if (typeof payload.response === 'string') raw = payload.response;\nelse raw = JSON.stringify(payload);\nif (!raw) throw new Error('RESEARCH_EMPTY_RESPONSE');\nlet generated = raw;\nif (raw.includes('\\n')) {\n  const chunks = raw.split(/\\r?\\n/).filter(Boolean).map((line) => JSON.parse(line));\n  generated = chunks.map((chunk) => chunk.response ?? '').join('');\n} else {\n  try { generated = JSON.parse(raw).response ?? raw; } catch {}\n}\nconst cleaned = generated.replace(/^```json\\s*/i, '').replace(/\\s*```$/i, '').trim();\nlet research;\ntry { research = JSON.parse(cleaned); } catch (error) { throw new Error(`RESEARCH_INVALID_JSON: ${error.message}`); }\nif (!research.recommended_topic?.claims?.length) throw new Error('RESEARCH_NO_RECOMMENDED_CLAIMS');\nconst provider = payload.research_provider ?? 'qwen-fallback';\nconst model = payload.research_model ?? 'tushin-agent:latest';\nreturn [{ json: { research, researched_at: new Date().toISOString(), research_provider: provider, model, requires_human_review: true } }];"
+      },
+      "id": "a0732238-b8e3-4919-add5-39e6eb9576c0",
+      "name": "Normalize Research Package",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const research = $json.research;\nconst topic = research?.recommended_topic;\nif (!topic) throw new Error('SEO_MISSING_RECOMMENDED_TOPIC');\nconst incoming = topic.seo_brief ?? {};\nconst toolName = String(topic.tool_name ?? topic.topic ?? 'AI developer tool').trim();\nconst primaryKeyword = String(incoming.primary_keyword ?? `${toolName} for developers`).trim();\nconst relatedKeywords = [...new Set((Array.isArray(incoming.related_keywords) ? incoming.related_keywords : []).map((value) => String(value).trim()).filter(Boolean))].slice(0, 8);\nconst titleOptions = [...new Set((Array.isArray(incoming.title_options) ? incoming.title_options : []).map((value) => String(value).trim()).filter(Boolean))].slice(0, 5);\nif (!titleOptions.length) titleOptions.push(`${toolName}: the developer workflow it improves`);\nconst hashtags = [...new Set((Array.isArray(incoming.hashtags) ? incoming.hashtags : []).map((value) => `#${String(value).replace(/^#/, '').replace(/[^A-Za-z0-9_]/g, '')}`).filter((value) => value.length > 1))].slice(0, 8);\nfor (const fallback of ['#AITools', '#DeveloperTools', '#Coding']) { if (hashtags.length >= 5) break; if (!hashtags.includes(fallback)) hashtags.push(fallback); }\nconst seoBrief = { primary_keyword: primaryKeyword, related_keywords: relatedKeywords, search_intent: incoming.search_intent ?? 'informational', title_options: titleOptions, description: String(incoming.description ?? topic.one_line_value ?? topic.why_it_matters ?? '').trim(), hashtags };\nresearch.recommended_topic.seo_brief = seoBrief;\nreturn [{ json: { ...$json, research, seo_brief: seoBrief } }];"
+      },
+      "id": "finalize-seo-brief",
+      "name": "Finalize SEO Brief",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const research = $json.research;\nif (!research?.recommended_topic) throw new Error('SCRIPT_MISSING_RESEARCH');\nconst topic = research.recommended_topic;\nconst prompt = `Write a clean, evidence-based dialogue for a 30-second vertical video about the recommended AI developer tool below. Return exactly six short alternating turns, beginning with Peter.\n\nDialogue structure:\n1. Peter introduces the tool and the developer pain it addresses.\n2. Stewie asks why it is needed.\n3. Peter explains the concrete workflow or capability.\n4. Stewie questions how it can be used or whether it is genuinely useful.\n5. Peter answers with a specific evidence-backed benefit.\n6. Stewie gives a concise, slightly skeptical but positive closing takeaway.\n\nFocus on one primary tool and one coherent use case. Do not combine unrelated products, models, or claims in the same dialogue. Every turn must be one sentence: complete, conversational, and written with simple grammar and a clear subject. Keep the entire dialogue between 55–68 words. Peter is plain-spoken and mildly funny; Stewie is precise, skeptical, and witty. Keep every line clean, natural, and easy to say aloud. Name the tool early, use the primary SEO keyword naturally at most once, and never include stage directions, headings, URLs, profanity, keyword stuffing, sentence fragments, or unsupported hype. Use only facts from the research package.\n\nAfter writing the dialogue, plan 4–8 relevant internet image cues. Each cue must name an exact phrase spoken in its zero-based turn_index, a focused image-search query, kind logo or screenshot, a visual_purpose of identity, interface, mechanism, or outcome, and a source_url to the relevant product, documentation, article or repository page. Use provided research URLs where possible. Never invent direct image URLs. Include different useful views: product identity, the actual UI/workflow, a feature or diagram, and a concrete outcome. Match the visual to the spoken claim. No generic title cards.\n\nReturn ONLY JSON: {\"title\":\"\",\"focus\":\"\",\"source_start_seconds\":0,\"turns\":[{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"}],\"visuals\":[{\"turn_index\":0,\"phrase\":\"exact spoken phrase\",\"query\":\"tool name screenshot\",\"kind\":\"screenshot\",\"visual_purpose\":\"interface\",\"source_url\":\"https://official-source-page\"}]}\nRECOMMENDED RESEARCH:\n${JSON.stringify(topic)}`;\nreturn [{ json: { prompt, research, seo_brief: $json.seo_brief, source_start_seconds: 0 } }];"
+      },
+      "id": "script-prompt",
+      "name": "Build Peter and Stewie Dialogue Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ollama.dextron04.in/api/generate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "CF-Access-Client-Id",
+              "value": "={{$env.OLLAMA_CF_ACCESS_CLIENT_ID}}"
+            },
+            {
+              "name": "CF-Access-Client-Secret",
+              "value": "={{$env.OLLAMA_CF_ACCESS_CLIENT_SECRET}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: 'tushin-agent:latest', prompt: $json.prompt, stream: true, options: { temperature: 0.35 } } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "id": "script-qwen",
+      "name": "Write Peter and Stewie Dialogue with Qwen Fallback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nlet raw = '';\nif (typeof payload === 'string') raw = payload;\nelse if (typeof payload.data === 'string') raw = payload.data;\nelse if (typeof payload.body === 'string') raw = payload.body;\nelse if (typeof payload.response === 'string') raw = payload.response;\nelse raw = JSON.stringify(payload);\nif (!raw) throw new Error('DIALOGUE_EMPTY_RESPONSE');\nconst lines = raw.split(/\\r?\\n/).filter(Boolean);\nlet generated = raw;\nif (lines.length > 1) {\n  const chunks = lines.map((line) => JSON.parse(line));\n  generated = chunks.map((chunk) => chunk.response ?? '').join('');\n} else {\n  try { generated = JSON.parse(raw).response ?? raw; } catch {}\n}\nlet dialoguePackage;\nconst end = generated.lastIndexOf('}');\nfor (const start of [0, ...[...generated.matchAll(/\\{/g)].map((match) => match.index)]) {\n  if (end < start) continue;\n  try {\n    const parsed = JSON.parse(generated.slice(start, end + 1));\n    if (Array.isArray(parsed.turns)) { dialoguePackage = parsed; break; }\n  } catch {}\n}\nif (!dialoguePackage || dialoguePackage.turns.length !== 6) throw new Error('DIALOGUE_REQUIRES_SIX_TURNS');\nconst expected = ['peter', 'stewie', 'peter', 'stewie', 'peter', 'stewie'];\nconst dialogue = dialoguePackage.turns.map((turn, index) => {\n  const speaker = String(turn.speaker ?? '').toLowerCase().trim();\n  if (speaker !== expected[index]) throw new Error(`DIALOGUE_SPEAKER_ORDER:${index}`);\n  const text = String(turn.text ?? '').replace(/\\s+/g, ' ').trim();\n  if (!text) throw new Error(`DIALOGUE_EMPTY_TURN:${index}`);\n  return { speaker, text, turn_index: index, audio_path: `/media/dialogue-${index}-${speaker}.wav` };\n});\nconst wordCount = dialogue.reduce((sum, turn) => sum + turn.text.split(/\\s+/).length, 0);\nif (wordCount < 48 || wordCount > 72) throw new Error(`DIALOGUE_WORD_COUNT:${wordCount}`);\nconst metadata = { title: String(dialoguePackage.title ?? ''), focus: String(dialoguePackage.focus ?? ''), source_start_seconds: Number(dialoguePackage.source_start_seconds ?? 0), visuals: Array.isArray(dialoguePackage.visuals) ? dialoguePackage.visuals : [], research: payload.research };\nreturn dialogue.map((turn) => ({ json: { ...turn, dialogue, ...metadata } }));"
+      },
+      "id": "dialogue-normalize",
+      "name": "Normalize Peter and Stewie Dialogue",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.TTS_BASE_URL + $env.TTS_SPEECH_PATH}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{'Bearer ' + $env.TTS_API_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { text: $json.text, voice: $json.speaker === 'stewie' ? ($env.TTS_STEWIE_VOICE || 'stewie') : ($env.TTS_PETER_VOICE || $env.TTS_VOICE || 'peter'), reference_id: $json.speaker === 'stewie' ? ($env.TTS_STEWIE_REFERENCE_ID || null) : ($env.TTS_PETER_REFERENCE_ID || $env.TTS_REFERENCE_ID || null), max_tokens: Number($env.TTS_MAX_TOKENS || 256), temperature: Number($env.TTS_TEMPERATURE || 0.3) } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          },
+          "timeout": 300000
+        }
+      },
+      "id": "tts-dialogue-turn",
+      "name": "Generate Dialogue Turn WAV",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ '/media/dialogue-' + $('Normalize Peter and Stewie Dialogue').item.json.turn_index + '-' + $('Normalize Peter and Stewie Dialogue').item.json.speaker + '.wav' }}",
+        "inputBinaryField": "data"
+      },
+      "id": "save-dialogue-turn",
+      "name": "Save Dialogue Turn Audio",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const jobs = $items('Normalize Peter and Stewie Dialogue').map((item) => item.json).sort((a, b) => a.turn_index - b.turn_index);\nif (jobs.length !== 6) throw new Error(`RENDER_REQUIRES_SIX_DIALOGUE_TURNS:${jobs.length}`);\nconst first = jobs[0];\nconst dialogue = jobs.map((job) => ({ speaker: job.speaker, text: job.text, turn_index: job.turn_index, audioPath: job.audio_path }));\nconst research = $items('Build Peter and Stewie Dialogue Prompt')[0].json.research;\nreturn [{json:{sourceVideo:'/media/source.mp4',voiceOverlay:null,pngOverlay:null,characterImages:{peter:'/media/peter.png',stewie:'/media/stewie.png'},startFrame:Math.round(Number(first.source_start_seconds ?? 0)*30),durationInFrames:900,dialogue,visualCues:first.visuals || [],visuals:[],title:first.title,focus:first.focus,research,requires_human_review:true}}];"
+      },
+      "id": "render-prep",
+      "name": "Build Dialogue Audio and Subtitle Render Job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/render",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 900000
+        }
+      },
+      "id": "render-reel",
+      "name": "Render 9:16 Reel with Subtitles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        0
+      ]
+    },
+    {
+      "id": "collect-script-images",
+      "name": "Find and Download Script Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2880,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/visuals",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {
+          "timeout": 900000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Research Twice Daily": {
+      "main": [
+        [
+          {
+            "node": "Fetch OpenAI News",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Google AI News",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Hugging Face News",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch GitHub Changelog",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch GitHub AI and ML",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch DEV AI Tools",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Product Hunt Launches",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch AWS Machine Learning",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Vercel Platform Updates",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch JetBrains IDE Updates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch OpenAI News": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Google AI News": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fetch Hugging Face News": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Fetch GitHub Changelog": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Fetch GitHub AI and ML": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Fetch DEV AI Tools": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Fetch Product Hunt Launches": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Fetch AWS Machine Learning": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 7
+          }
+        ]
+      ]
+    },
+    "Fetch Vercel Platform Updates": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 8
+          }
+        ]
+      ]
+    },
+    "Fetch JetBrains IDE Updates": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 9
+          }
+        ]
+      ]
+    },
+    "Merge Research Sources": {
+      "main": [
+        [
+          {
+            "node": "Score Developer Tool Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Developer Tool Trends": {
+      "main": [
+        [
+          {
+            "node": "Build Research Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Research Prompt": {
+      "main": [
+        [
+          {
+            "node": "Research with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research with Claude": {
+      "main": [
+        [
+          {
+            "node": "Route Claude Research Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Claude Research Result": {
+      "main": [
+        [
+          {
+            "node": "Claude Research Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Research Available?": {
+      "main": [
+        [
+          {
+            "node": "Normalize Research Package",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Research with Local Qwen Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research with Local Qwen Fallback": {
+      "main": [
+        [
+          {
+            "node": "Normalize Research Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Research Package": {
+      "main": [
+        [
+          {
+            "node": "Finalize SEO Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finalize SEO Brief": {
+      "main": [
+        [
+          {
+            "node": "Build Peter and Stewie Dialogue Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Peter and Stewie Dialogue Prompt": {
+      "main": [
+        [
+          {
+            "node": "Write Peter and Stewie Dialogue with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Peter and Stewie Dialogue with Claude": {
+      "main": [
+        [
+          {
+            "node": "Route Claude Dialogue Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Claude Dialogue Result": {
+      "main": [
+        [
+          {
+            "node": "Claude Dialogue Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Dialogue Available?": {
+      "main": [
+        [
+          {
+            "node": "Normalize Peter and Stewie Dialogue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write Peter and Stewie Dialogue with Qwen Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Peter and Stewie Dialogue with Qwen Fallback": {
+      "main": [
+        [
+          {
+            "node": "Normalize Peter and Stewie Dialogue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Peter and Stewie Dialogue": {
+      "main": [
+        [
+          {
+            "node": "Generate Dialogue Turn WAV",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Dialogue Turn WAV": {
+      "main": [
+        [
+          {
+            "node": "Save Dialogue Turn Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Dialogue Turn Audio": {
+      "main": [
+        [
+          {
+            "node": "Build Dialogue Audio and Subtitle Render Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Dialogue Audio and Subtitle Render Job": {
+      "main": [
+        [
+          {
+            "node": "Find and Download Script Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find and Download Script Images": {
+      "main": [
+        [
+          {
+            "node": "Render 9:16 Reel with Subtitles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "500d2bdc-c4ca-4601-809b-8b3830da707c"
+}

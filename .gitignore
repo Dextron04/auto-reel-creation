@@ -1,0 +1,13 @@
+.DS_Store
+.env
+.env.prod
+.env.prod.local
+.env.*.local
+node_modules/
+*.mp4
+npm-debug.log*
+n8n_data/
+media/*
+!media/.gitkeep
+output/*
+!output/.gitkeep

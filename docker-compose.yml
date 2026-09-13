@@ -1,0 +1,27 @@
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    env_file:
+      - .env.prod
+    ports: ["127.0.0.1:5678:5678"]
+    environment:
+      - N8N_SECURE_COOKIE=false
+      - N8N_HOST=localhost
+      - GENERIC_TIMEZONE=America/Chicago
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      - N8N_RESTRICT_FILE_ACCESS_TO=/media;/output
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./media:/media
+      - ./output:/output
+  renderer:
+    build: ./renderer
+    env_file:
+      - .env.prod
+    ports: ["127.0.0.1:3001:3001"]
+    volumes:
+      - ./media:/media
+      - ./output:/output
+
+volumes:
+  n8n_data:
