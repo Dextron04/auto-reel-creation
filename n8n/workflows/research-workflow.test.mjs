@@ -7,6 +7,18 @@ const workflowPath = new URL('./research-and-render-reel.json', import.meta.url)
 const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
 const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
 
+test('workflow exposes a private manual webhook through the same production pipeline', () => {
+  const trigger = workflow.nodes.find((node) => node.name === 'Run from Dashboard');
+
+  assert.equal(trigger?.type, 'n8n-nodes-base.webhook');
+  assert.equal(trigger?.parameters?.httpMethod, 'POST');
+  assert.equal(trigger?.parameters?.path, 'reel-dashboard-run');
+  assert.equal(
+    workflow.connections['Run from Dashboard']?.main?.[0]?.[0]?.node,
+    'Fetch OpenAI News',
+  );
+});
+
 test('research workflow includes broad developer-tool discovery sources', () => {
   const sourceIds = [
     'rss-openai',

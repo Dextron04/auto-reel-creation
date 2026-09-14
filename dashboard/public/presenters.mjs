@@ -12,6 +12,27 @@ function definition(label, value, className = '') {
   return `<dt>${escapeHtml(label)}</dt><dd${className ? ` class="${className}"` : ''}>${escapeHtml(value)}</dd>`;
 }
 
+export function manualRunPresentation({runningExecutionId, starting, error = null}) {
+  if (starting) {
+    return {disabled: true, label: 'Starting…', message: 'Sending the workflow to n8n…'};
+  }
+  if (runningExecutionId) {
+    return {
+      disabled: true,
+      label: 'Workflow running',
+      message: `Execution #${runningExecutionId} is in progress.`,
+    };
+  }
+  if (error) {
+    return {disabled: false, label: 'Try again', message: error, error: true};
+  }
+  return {
+    disabled: false,
+    label: 'Run workflow',
+    message: 'Start a reel now without opening n8n.',
+  };
+}
+
 export function executionDisclosure(view) {
   const statusClass = String(view.status ?? '').replace(/[^a-z-]/gi, '');
   return `<details class="mobile-record execution-record">

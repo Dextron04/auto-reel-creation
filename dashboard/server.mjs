@@ -8,6 +8,7 @@ import {
   mapExecution,
   mergeExecutionDetails,
   nextCronOccurrence,
+  triggerManualRun,
 } from './operations.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,6 +24,7 @@ const SCHEDULE_TIMEZONE = process.env.GENERIC_TIMEZONE ?? 'America/Chicago';
 const SCHEDULE_NODE_NAME = 'Research Twice Daily';
 
 let cachedWorkflowId = null;
+let manualTriggerPending = false;
 
 function n8nConfigured() { return Boolean(N8N_API_KEY); }
 
@@ -243,6 +245,34 @@ app.get('/api/executions', async (req, res) => {
       nextCursor: list.nextCursor ?? null,
     });
   } catch (error) { res.status(500).json({configured: true, error: error.message, executions: [], running: [], nextCursor: null}); }
+});
+
+app.post('/api/run', async (_req, res) => {
+  if (!n8nConfigured()) {
+    return res.status(503).json({error: 'N8N_API_KEY not configured — cannot start the workflow.'});
+  }
+  if (manualTriggerPending) {
+    return res.status(409).json({error: 'A manual start request is already in progress.'});
+  }
+
+  manualTriggerPending = true;
+  try {
+    const workflowId = await findWorkflowId();
+    const list = await n8nFetch(executionListPath(workflowId));
+    const result = await triggerManualRun(list.data ?? [], () => n8nFetch('/webhook/reel-dashboard-run', {
+      method: 'POST',
+      body: JSON.stringify({source: 'reel-operations-dashboard'}),
+    }));
+
+    if (!result.accepted) {
+      return res.status(409).json({error: result.message, runningExecutionId: result.runningExecutionId});
+    }
+    return res.status(202).json(result);
+  } catch (error) {
+    return res.status(502).json({error: `Could not start workflow: ${error.message}`});
+  } finally {
+    manualTriggerPending = false;
+  }
 });
 
 app.listen(PORT, () => console.log(`dashboard listening on ${PORT}`));

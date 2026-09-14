@@ -24,6 +24,22 @@
     },
     {
       "parameters": {
+        "httpMethod": "POST",
+        "path": "reel-dashboard-run",
+        "options": {}
+      },
+      "id": "dashboard-manual-trigger",
+      "name": "Run from Dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "8c4c9fc3-4ab4-44af-b2d8-9939c5d1116e"
+    },
+    {
+      "parameters": {
         "method": "GET",
         "url": "http://renderer:3001/v1/topic-history",
         "options": {
@@ -884,6 +900,17 @@
           },
           {
             "node": "Fetch Hacker News Front Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run from Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Fetch OpenAI News",
             "type": "main",
             "index": 0
           }

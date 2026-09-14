@@ -4,10 +4,59 @@ import assert from 'node:assert/strict';
 import {
   executionListPath,
   formatScheduledRun,
+  manualRunAvailability,
+  triggerManualRun,
   mapExecution,
   mergeExecutionDetails,
   nextCronOccurrence,
 } from './operations.mjs';
+
+test('manualRunAvailability blocks a duplicate while an execution is running', () => {
+  assert.deepEqual(
+    manualRunAvailability([
+      {id: '1843', status: 'success'},
+      {id: '1844', status: 'running'},
+    ]),
+    {
+      allowed: false,
+      runningExecutionId: '1844',
+      message: 'Execution #1844 is already running.',
+    },
+  );
+});
+
+test('manualRunAvailability allows a run when no execution is active', () => {
+  assert.deepEqual(
+    manualRunAvailability([
+      {id: '1843', status: 'success'},
+      {id: '1842', status: 'error'},
+    ]),
+    {allowed: true, runningExecutionId: null, message: null},
+  );
+});
+
+test('triggerManualRun refuses to invoke n8n for a duplicate execution', async () => {
+  let invoked = false;
+  const result = await triggerManualRun(
+    [{id: '1844', status: 'running'}],
+    async () => { invoked = true; },
+  );
+
+  assert.equal(invoked, false);
+  assert.deepEqual(result, {
+    accepted: false,
+    runningExecutionId: '1844',
+    message: 'Execution #1844 is already running.',
+  });
+});
+
+test('triggerManualRun invokes n8n when the workflow is idle', async () => {
+  let invoked = false;
+  const result = await triggerManualRun([], async () => { invoked = true; });
+
+  assert.equal(invoked, true);
+  assert.deepEqual(result, {accepted: true, runningExecutionId: null, message: 'Workflow started.'});
+});
 
 test('nextCronOccurrence finds the next twice-daily run in the configured timezone', () => {
   const next = nextCronOccurrence(

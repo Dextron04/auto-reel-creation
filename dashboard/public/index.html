@@ -37,6 +37,11 @@
   .banner.bad { border-color: var(--red); } .banner.warn { border-color: var(--amber); } .banner.info { border-color: var(--blue); }
   main { display: grid; gap: 44px; margin-top: 38px; }
   .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin-bottom: 14px; }
+  .run-heading { align-items: center; }
+  .run-action { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+  .run-message { max-width: 32ch; color: var(--muted); font-size: 12px; text-align: right; }
+  .run-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; }
+  .run-button svg { width: 14px; height: 14px; }
   h2 { margin: 0; font-size: 19px; letter-spacing: -.015em; font-weight: 600; }
   .section-meta { color: var(--muted); font-size: 13px; }
   .running-list { background: var(--paper); border: 1px solid var(--line); }
@@ -95,6 +100,10 @@
     .banner { padding: 9px 10px; margin-bottom: 6px; line-height: 1.35; }
     main { gap: 30px; margin-top: 26px; }
     .section-heading { margin-bottom: 10px; }
+    .run-heading { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+    .run-action { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 4px; }
+    .run-message { max-width: none; text-align: left; }
+    .run-button { width: 100%; min-height: 48px; }
     h2 { font-size: 18px; }
     .run-card { grid-template-columns: 1fr auto; gap: 8px 12px; min-height: 68px; padding: 14px; }
     .node-list { grid-column: 1 / -1; }
@@ -153,7 +162,13 @@
   <div id="banners"></div>
   <main>
     <section aria-labelledby="running-title">
-      <div class="section-heading"><h2 id="running-title">Running now</h2><span class="section-meta" id="runningCount">Checking activity…</span></div>
+      <div class="section-heading run-heading">
+        <h2 id="running-title">Running now</h2><span class="section-meta" id="runningCount">Checking activity…</span>
+        <div class="run-action">
+          <span class="run-message" id="manualRunMessage" aria-live="polite">Checking workflow activity…</span>
+          <button class="primary run-button" id="runWorkflow" disabled><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2.7v10.6c0 .7.8 1.1 1.4.7l8-5.3a.83.83 0 0 0 0-1.4l-8-5.3c-.6-.4-1.4 0-1.4.7Z"/></svg><span>Run workflow</span></button>
+        </div>
+      </div>
       <div id="running"><div class="empty">Loading active executions…</div></div>
     </section>
     <section aria-labelledby="executions-title">
@@ -178,7 +193,7 @@
   </main>
 </div>
 <script type="module">
-import {executionDisclosure, videoDisclosure} from './presenters.mjs';
+import {executionDisclosure, manualRunPresentation, videoDisclosure} from './presenters.mjs';
 const $ = (selector, element = document) => element.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[character]);
 const fmtBytes = bytes => bytes == null ? '—' : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -191,7 +206,7 @@ const durationBetween = (start, stop = new Date()) => {
   const minutes = Math.floor(seconds / 60);
   return seconds < 3600 ? `${minutes}m ${seconds % 60}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 };
-let executionRows = [], nextExecutionCursor = null, nextRunAt = null, nextRunLabel = null, historyExpanded = false;
+let executionRows = [], nextExecutionCursor = null, nextRunAt = null, nextRunLabel = null, historyExpanded = false, manualRunStarting = false, manualRunError = null;
 async function getJSON(url, options) {
   const response = await fetch(url, options); const body = await response.json().catch(() => ({}));
   if (!response.ok) throw Object.assign(new Error(body.error || response.statusText), {body}); return body;
@@ -231,6 +246,14 @@ function renderRunning(rows) {
     return `<article class="run-card"><div class="run-id"><span class="pulse"></span>Execution ${escapeHtml(execution.id)}</div><div class="node-list">${nodes.map(node => `<span class="node">${escapeHtml(node)}</span>`).join('')}</div><div class="elapsed" data-started="${escapeHtml(execution.startedAt)}">${durationBetween(execution.startedAt)}</div></article>`;
   }).join('')}</div>`;
 }
+function renderManualRunControl() {
+  const runningExecution = executionRows.find(execution => execution.status === 'running');
+  const view = manualRunPresentation({runningExecutionId: runningExecution?.id ?? null, starting: manualRunStarting, error: manualRunError});
+  const button = $('#runWorkflow');
+  button.disabled = view.disabled;
+  button.querySelector('span').textContent = view.label;
+  $('#manualRunMessage').innerHTML = view.error ? `<span class="bad-text">${escapeHtml(view.message)}</span>` : escapeHtml(view.message);
+}
 function statusLabel(status) {
   const label = status === 'success' ? 'Succeeded' : status === 'error' ? 'Failed' : status.charAt(0).toUpperCase() + status.slice(1);
   return `<span class="status ${escapeHtml(status)}">${escapeHtml(label)}</span>`;
@@ -269,6 +292,7 @@ async function loadExecutions(reset = true) {
     historyExpanded = true;
   }
   renderRunning(data.executions); renderExecutions();
+  renderManualRunControl();
 }
 document.querySelectorAll('.preset').forEach(button => button.addEventListener('click', () => { $('#cronInput').value = button.dataset.cron; }));
 $('#saveSchedule').addEventListener('click', async () => {
@@ -278,6 +302,25 @@ $('#saveSchedule').addEventListener('click', async () => {
     message.innerHTML = `<span class="good-text">Schedule saved.</span>${result.fileWarning ? `<br><span class="warn-text">${escapeHtml(result.fileWarning)}</span>` : ''}`;
     await Promise.all([loadSchedule(),loadStatus()]);
   } catch (error) { message.innerHTML = `<span class="bad-text">${escapeHtml(error.message)}</span>`; }
+});
+$('#runWorkflow').addEventListener('click', async () => {
+  if (manualRunStarting) return;
+  manualRunStarting = true;
+  manualRunError = null;
+  renderManualRunControl();
+  try {
+    await getJSON('/api/run', {method:'POST'});
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 700));
+      await loadExecutions(true);
+      if (executionRows.some(execution => execution.status === 'running')) break;
+    }
+  } catch (error) {
+    manualRunError = error.message;
+  } finally {
+    manualRunStarting = false;
+    renderManualRunControl();
+  }
 });
 async function loadVideos() {
   const videos = await getJSON('/api/videos'); $('#videoCount').textContent = `${videos.length} released`;

@@ -108,6 +108,31 @@ export function executionListPath(workflowId, cursor = null) {
   return `/api/v1/executions?${params}`;
 }
 
+export function manualRunAvailability(executions) {
+  const running = executions.find(execution => execution.status === 'running');
+  if (running) {
+    return {
+      allowed: false,
+      runningExecutionId: running.id,
+      message: `Execution #${running.id} is already running.`,
+    };
+  }
+  return {allowed: true, runningExecutionId: null, message: null};
+}
+
+export async function triggerManualRun(executions, trigger) {
+  const availability = manualRunAvailability(executions);
+  if (!availability.allowed) {
+    return {
+      accepted: false,
+      runningExecutionId: availability.runningExecutionId,
+      message: availability.message,
+    };
+  }
+  await trigger();
+  return {accepted: true, runningExecutionId: null, message: 'Workflow started.'};
+}
+
 export function mergeExecutionDetails(summaries, details) {
   const detailsById = new Map(details.map(execution => [execution.id, execution]));
   return summaries.map(execution => detailsById.get(execution.id) ?? execution);

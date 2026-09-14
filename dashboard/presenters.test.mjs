@@ -1,7 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {executionDisclosure, videoDisclosure} from './public/presenters.mjs';
+import {executionDisclosure, manualRunPresentation, videoDisclosure} from './public/presenters.mjs';
+
+test('manualRunPresentation disables the control while a workflow is active', () => {
+  assert.deepEqual(manualRunPresentation({runningExecutionId: '1844', starting: false}), {
+    disabled: true,
+    label: 'Workflow running',
+    message: 'Execution #1844 is in progress.',
+  });
+});
+
+test('manualRunPresentation exposes an idle and a starting state', () => {
+  assert.deepEqual(manualRunPresentation({runningExecutionId: null, starting: false}), {
+    disabled: false,
+    label: 'Run workflow',
+    message: 'Start a reel now without opening n8n.',
+  });
+  assert.deepEqual(manualRunPresentation({runningExecutionId: null, starting: true}), {
+    disabled: true,
+    label: 'Starting…',
+    message: 'Sending the workflow to n8n…',
+  });
+});
+
+test('manualRunPresentation keeps a failed start visible after the request settles', () => {
+  assert.deepEqual(manualRunPresentation({
+    runningExecutionId: null,
+    starting: false,
+    error: 'Webhook unavailable',
+  }), {
+    disabled: false,
+    label: 'Try again',
+    message: 'Webhook unavailable',
+    error: true,
+  });
+});
 
 test('executionDisclosure keeps the scan line compact and expands into operational details', () => {
   const html = executionDisclosure({
