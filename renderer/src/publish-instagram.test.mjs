@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {buildVideoUrl, createContainer, pollUntilFinished, publishContainer, getPermalink, publishToInstagram} from './publish-instagram.mjs'
+import {buildVideoUrl, createContainer, pollUntilFinished, publishContainer, getPermalink, publishToInstagram, diagnoseInstagramContainer} from './publish-instagram.mjs'
 
 const fakeResponse = (status, body) => ({ok: status >= 200 && status < 300, status, json: async () => body})
 
@@ -46,8 +46,11 @@ test('pollUntilFinished retries while IN_PROGRESS then resolves on FINISHED', as
   assert.equal(slept, 2)
 })
 test('pollUntilFinished throws on ERROR status', async () => {
-  const fetchImpl = async () => fakeResponse(200, {status_code: 'ERROR'})
-  await assert.rejects(() => pollUntilFinished({creationId: 'c1', accessToken: 'tok'}, fetchImpl, {sleep: async () => {}}), /INSTAGRAM_CONTAINER_ERROR:ERROR/)
+  const fetchImpl = async () => fakeResponse(200, {status_code: 'ERROR', status: 'Video fetch failed: unsupported response'})
+  await assert.rejects(
+    () => pollUntilFinished({creationId: 'c1', accessToken: 'tok'}, fetchImpl, {sleep: async () => {}}),
+    /INSTAGRAM_CONTAINER_ERROR:ERROR:c1:Video fetch failed: unsupported response/
+  )
 })
 test('pollUntilFinished throws on EXPIRED status', async () => {
   const fetchImpl = async () => fakeResponse(200, {status_code: 'EXPIRED'})
@@ -107,4 +110,21 @@ test('publishToInstagram throws INSTAGRAM_NOT_CONFIGURED when env vars are missi
   delete process.env.INSTAGRAM_ACCESS_TOKEN
   delete process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID
   await assert.rejects(() => publishToInstagram({outputLocation: '/output/reel-1.mp4', caption: 'hi'}, async () => fakeResponse(200, {})), /INSTAGRAM_NOT_CONFIGURED/)
+})
+
+test('diagnoseInstagramContainer creates and polls without publishing', async () => {
+  process.env.INSTAGRAM_ACCESS_TOKEN = 'tok'
+  process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID = 'biz-1'
+  process.env.PUBLIC_MEDIA_BASE_URL = 'https://media.example.com'
+  const urls = []
+  const fetchImpl = async (url) => {
+    urls.push(String(url))
+    if (String(url).includes('/biz-1/media')) return fakeResponse(200, {id: 'creation-diagnostic'})
+    if (String(url).includes('/creation-diagnostic')) return fakeResponse(200, {status_code: 'FINISHED', status: 'Finished'})
+    throw new Error(`unexpected url: ${url}`)
+  }
+  const result = await diagnoseInstagramContainer({outputLocation: '/output/reel-1.mp4', caption: 'diagnostic'}, fetchImpl, {sleep: async () => {}})
+  assert.deepEqual(result, {creationId: 'creation-diagnostic', statusCode: 'FINISHED', status: 'Finished', published: false})
+  assert.equal(urls.length, 2)
+  assert.ok(urls.every(url => !url.includes('media_publish')))
 })
