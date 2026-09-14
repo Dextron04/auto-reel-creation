@@ -22,7 +22,7 @@ Scope: generated reels use natural-speed dialogue, end with the dialogue between
 - [x] G4: n8n workflow regression tests pass
   CHECK: node --test n8n/workflows/research-workflow.test.mjs && node -e "console.log('workflow regression suite passed')"
   EXPECT: workflow regression suite passed
-  EVIDENCE: node --test n8n/workflows/research-workflow.test.mjs → 15 pass, 0 fail (2026-09-13)
+  EVIDENCE: node --test n8n/workflows/research-workflow.test.mjs → 26 pass, 0 fail (2026-09-14), incl. regression test for the truncated-fence RESEARCH_INVALID_JSON production failure
 
 - [x] G5: a complete n8n execution produces a playable 9:16 reel with natural-speed speech, a measured duration from 30 through 60 seconds, subtitles, character switching, and topic visuals covering the dialogue without gaps
   CHECK: node scripts/verify-latest-reel.mjs

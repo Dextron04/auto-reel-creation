@@ -117,6 +117,21 @@ test('research normalization accepts Claude fenced multiline JSON and Qwen NDJSO
   assert.deepEqual(qwen[0].json.research, research);
 });
 
+test('research normalization recovers from a truncated (unclosed) code fence', () => {
+  const normalizeCode = nodeById.get('a0732238-b8e3-4919-add5-39e6eb9576c0').parameters.jsCode;
+  const research = {recommended_topic: {claims: [{statement: 'Useful'}]}};
+  // Reproduces a real qwen-fallback failure: generation stopped before the closing ``` ever
+  // arrived, so the naive fenced-block regex never matches and JSON.parse chokes on the backtick.
+  const truncated = new Function('$json', normalizeCode)({
+    response: `\`\`\`json\n${JSON.stringify(research, null, 2)}`,
+    research_provider: 'qwen-fallback',
+    research_model: 'tushin-agent:latest',
+  });
+  assert.deepEqual(truncated[0].json.research, research);
+
+  assert.throws(() => new Function('$json', normalizeCode)({response: 'not json at all'}), /RESEARCH_INVALID_JSON/);
+});
+
 test('research prompt requests actionable developer and SEO output', () => {
   const promptCode = nodeById.get('af5f69ff-5d43-439d-80bf-b74085e60214').parameters.jsCode;
   for (const requiredText of [
