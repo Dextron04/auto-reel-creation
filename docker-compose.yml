@@ -26,6 +26,22 @@ services:
     volumes:
       - ./media:/media
       - ./output:/output
+  dashboard:
+    build: ./dashboard
+    env_file:
+      - .env.prod
+    environment:
+      - DASHBOARD_PORT=4000
+      - N8N_BASE_URL=http://n8n:5678
+      - RENDERER_URL_PUBLIC=http://renderer:3001
+    ports: ["127.0.0.1:4000:4000"]
+    volumes:
+      - ./output:/app/output:ro
+      - ./n8n/workflows:/app/n8n/workflows:ro
+      - ./GATES.md:/app/GATES.md:ro
+    depends_on:
+      - n8n
+      - renderer
 
 volumes:
   n8n_data:
