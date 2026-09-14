@@ -1,0 +1,5 @@
+import test from 'node:test'; import assert from 'node:assert/strict';
+import {normalizeSignal, selectBalancedSignals, discoverTrends} from './trend-discovery.mjs';
+test('normalizes without inventing engagement',()=>{const s=normalizeSignal({title:'x',url:'https://x.test'},'hn'); assert.equal(s.engagement.score,undefined); assert.equal(s.publisher,'hn');});
+test('balances categories and caps publishers',()=>{const xs=Array.from({length:8},(_,i)=>normalizeSignal({id:i,title:`t${i}`,url:`https://x.test/${i}`,category:i%2?'b':'a',developer_relevance:10},'p'+(i%3))); const out=selectBalancedSignals(xs,{maxSignals:6,maxPerPublisher:2,minSignals:1}); assert.equal(out.length,6); assert.ok(new Set(out.map(x=>x.category)).size===2);});
+test('archives prior topics',()=>{const r=discoverTrends({sources:[{publisher:'p',items:[{title:'Old Tool',url:'https://x.test/1'},{title:'New Tool',url:'https://x.test/2'}]}],history:[{tool_name:'Old Tool'}],limits:{minSignals:1}}); assert.equal(r.signals.length,1); assert.equal(r.rejected[0].reason,'TOPIC_ARCHIVED');});
