@@ -139,15 +139,47 @@ test('research prompt asks for category breadth and avoids recently covered topi
   const items = (name) => name === 'Score Developer Tool Trends' ? scored : [];
   const fn = new Function('$items', '$json', promptCode);
 
-  const withHistory = fn(items, {recent: [{tool_name: 'AI SDK Harness Layer', category: 'Agent Harness'}]});
-  assert.match(withHistory[0].json.prompt, /already covered: AI SDK Harness Layer \(Agent Harness\)/);
-  assert.match(withHistory[0].json.prompt, /databases, security vulnerabilities/);
+  const withHistory = fn(items, {recent: [{tool_name: 'AI SDK Harness Layer', category: 'Agent Harness', topic: 'Durable agent execution'}]});
+  assert.match(withHistory[0].json.prompt, /PERMANENT EXCLUSION ARCHIVE.*AI SDK Harness Layer: Durable agent execution \(Agent Harness\)/s);
+  assert.match(withHistory[0].json.prompt, /databases, security, performance engineering/);
 
   const withoutHistory = fn(items, {recent: []});
-  assert.doesNotMatch(withoutHistory[0].json.prompt, /already covered/);
+  assert.doesNotMatch(withoutHistory[0].json.prompt, /PERMANENT EXCLUSION ARCHIVE/);
 
   const missingHistoryResponse = fn(items, undefined);
   assert.equal(missingHistoryResponse.length, 1, 'a failed topic-history fetch must not break research');
+});
+
+test('research prompt balances source material across categories before repeating one', () => {
+  const promptCode = nodeById.get('af5f69ff-5d43-439d-80bf-b74085e60214').parameters.jsCode;
+  const categories = ['agents', 'agents', 'agents', 'databases', 'security', 'testing'];
+  const scored = categories.map((content_category, index) => ({json: {
+    source_url: `https://example.com/${index}`,
+    publisher: `publisher-${index}.com`,
+    trend_score: 100 - index,
+    content_category,
+  }}));
+  const items = (name) => name === 'Score Developer Tool Trends' ? scored : [];
+
+  const result = new Function('$items', '$json', promptCode)(items, {recent: []});
+  const firstFourCategories = result[0].json.sources.slice(0, 4).map((item) => item.content_category);
+
+  assert.equal(new Set(firstFourCategories).size, 4);
+});
+
+test('research prompt requires every fallback candidate to contain complete evidence', () => {
+  const promptCode = nodeById.get('af5f69ff-5d43-439d-80bf-b74085e60214').parameters.jsCode;
+  const scored = Array.from({length: 5}, (_, index) => ({json: {
+    source_url: `https://example.com/${index}`,
+    publisher: `publisher-${index}.com`,
+    trend_score: 90 - index,
+    content_category: 'testing',
+  }}));
+  const items = (name) => name === 'Score Developer Tool Trends' ? scored : [];
+
+  const result = new Function('$items', '$json', promptCode)(items, {recent: []});
+
+  assert.match(result[0].json.prompt, /Every candidate must include the full evidence and SEO fields/i);
 });
 
 test('SEO brief is finalized before dialogue generation', () => {
@@ -157,24 +189,34 @@ test('SEO brief is finalized before dialogue generation', () => {
   assert.match(seoNode.parameters.jsCode, /related_keywords/);
   assert.equal(
     workflow.connections['Normalize Research Package'].main[0][0].node,
+    'Select Unused Topic',
+  );
+  assert.equal(
+    workflow.connections['Select Unused Topic'].main[0][0].node,
     'Finalize SEO Brief',
   );
   assert.equal(
     workflow.connections['Finalize SEO Brief'].main[0][0].node,
-    'Record Topic to History',
-  );
-  assert.equal(
-    workflow.connections['Record Topic to History'].main[0][0].node,
     'Build Peter and Stewie Dialogue Prompt',
   );
 });
 
-test('a topic is recorded to history before the dialogue prompt is built, without blocking on failure', () => {
+test('a topic is recorded only after a video renders successfully', () => {
   const recordNode = nodeById.get('record-topic-history');
   assert.ok(recordNode, 'missing record-topic-history node');
-  assert.equal(recordNode.parameters.options.neverError, true, 'a history-write failure must not fail the run');
+  assert.notEqual(recordNode.parameters.options.neverError, true, 'losing permanent history must fail visibly');
   assert.match(recordNode.parameters.jsonBody, /tool_name/);
   assert.match(recordNode.parameters.jsonBody, /recommended_topic/);
+  assert.equal(workflow.connections['Render 9:16 Reel with Subtitles'].main[0][0].node, 'Record Topic to History');
+  assert.equal(workflow.connections['Record Topic to History'].main[0][0].node, 'Build Instagram Caption Prompt');
+});
+
+test('normalized research is checked against permanent history before scripting', () => {
+  const selectNode = nodeById.get('select-unused-topic');
+  assert.ok(selectNode, 'missing hard duplicate-selection node');
+  assert.equal(selectNode.parameters.url, 'http://renderer:3001/v1/topic-history/select');
+  assert.notEqual(selectNode.parameters.options.neverError, true, 'duplicate exhaustion must stop the run');
+  assert.match(selectNode.parameters.jsonBody, /research/);
 });
 
 test('recent topics are fetched before the research prompt is built, without blocking on failure', () => {
@@ -212,6 +254,26 @@ test('trend scoring keeps developer tools and ranks stronger signals first', () 
   assert.ok(result.every((item) => Number.isFinite(item.json.trend_score)));
 });
 
+test('trend scoring classifies stories so category balancing has real inputs', () => {
+  const scoreCode = nodeById.get('score-developer-tool-trends').parameters.jsCode;
+  const recent = new Date().toISOString();
+  const fixtures = [
+    ['PostgreSQL database adds async I/O API', 'https://example.com/postgres', 'Database performance for developers.'],
+    ['Critical dependency vulnerability fixed', 'https://example.com/security', 'Developer security patch for a package supply chain vulnerability.'],
+    ['New unit testing framework', 'https://example.com/testing', 'Developer test automation and evaluation framework.'],
+    ['Coding agent adds MCP tools', 'https://example.com/agent', 'Agentic coding workflow with tool calling.'],
+    ['Deployment CLI cuts build time', 'https://example.com/deploy', 'Developer deployment performance tooling.'],
+  ].map(([title, link, contentSnippet]) => ({json: {title, link, contentSnippet, isoDate: recent}}));
+
+  const result = new Function('$input', scoreCode)({all: () => fixtures});
+  const categories = new Set(result.map((item) => item.json.content_category));
+
+  assert.ok(categories.has('databases'));
+  assert.ok(categories.has('security'));
+  assert.ok(categories.has('testing'));
+  assert.ok(categories.has('agents'));
+});
+
 test('publisher parsing works in the restricted n8n Code sandbox', () => {
   const scoreCode = nodeById.get('score-developer-tool-trends').parameters.jsCode;
   const recent = new Date().toISOString();
@@ -243,7 +305,9 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.match(result[0].json.prompt, /"turns"/);
   assert.match(result[0].json.prompt, /Peter introduces/i);
   assert.match(result[0].json.prompt, /Stewie/i);
-  assert.match(result[0].json.prompt, /no strict upper word limit/);
+  assert.match(result[0].json.prompt, /8–12 distinct visual cues/);
+  assert.match(result[0].json.prompt, /Claude Vision will reject irrelevant candidates/);
+  assert.match(result[0].json.prompt, /government documents/);
   assert.match(result[0].json.prompt, /one primary tool/i);
   assert.match(result[0].json.prompt, /one sentence/i);
   assert.match(result[0].json.prompt, /do not combine unrelated products/i);
@@ -378,7 +442,7 @@ test('Instagram caption prompt includes the tool context, dialogue, and JSON ins
     dialogue: [{speaker: 'peter', text: 'Meet Agent Kit.'}, {speaker: 'stewie', text: 'Why do I care?'}],
   }};
   const items = () => [context];
-  const result = new Function('$json', '$items', promptNode.parameters.jsCode)({outputLocation: '/output/reel-1.mp4'}, items);
+  const result = new Function('$json', '$items', promptNode.parameters.jsCode)({render: {outputLocation: '/output/reel-1.mp4'}}, items);
   assert.equal(result.length, 1);
   assert.match(result[0].json.prompt, /Agent Kit/);
   assert.match(result[0].json.prompt, /Meet Agent Kit\./);

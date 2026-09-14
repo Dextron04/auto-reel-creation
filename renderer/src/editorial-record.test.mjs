@@ -1,0 +1,2 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import fs from 'node:fs/promises'; import os from 'node:os'; import path from 'node:path'; import {writeEditorialRecord,readEditorialRecord} from './editorial-record.mjs';
+test('writes and reads an editorial record atomically',async()=>{const dir=await fs.mkdtemp(path.join(os.tmpdir(),'editorial-')); const p=await writeEditorialRecord({runId:'r1',artifact:{signals:[]},mediaDir:dir}); assert.equal((await readEditorialRecord('r1',dir)).run_id,'r1'); assert.ok(p.endsWith('/r1.json'));});

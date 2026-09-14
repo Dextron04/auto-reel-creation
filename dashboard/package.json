@@ -1,0 +1,11 @@
+{
+  "name": "reel-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=../.env.prod server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

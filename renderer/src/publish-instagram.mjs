@@ -29,12 +29,22 @@ export async function createContainer({videoUrl, caption, accessToken, businessA
 export async function pollUntilFinished({creationId, accessToken}, fetchImpl = fetch, {intervalMs = DEFAULT_POLL_INTERVAL_MS, budgetMs = DEFAULT_POLL_BUDGET_MS, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))} = {}) {
   const deadline = Date.now() + budgetMs
   for (;;) {
-    const json = await graphRequest(fetchImpl, 'GET', `/${creationId}`, {fields: 'status_code', access_token: accessToken})
-    if (json.status_code === 'FINISHED') return
-    if (json.status_code === 'ERROR' || json.status_code === 'EXPIRED') throw new Error(`INSTAGRAM_CONTAINER_ERROR:${json.status_code}`)
+    const json = await graphRequest(fetchImpl, 'GET', `/${creationId}`, {fields: 'status_code,status', access_token: accessToken})
+    if (json.status_code === 'FINISHED') return {statusCode: json.status_code, status: String(json.status ?? '')}
+    if (json.status_code === 'ERROR' || json.status_code === 'EXPIRED') throw new Error(`INSTAGRAM_CONTAINER_ERROR:${json.status_code}:${creationId}:${String(json.status ?? 'No processing details returned')}`)
     if (Date.now() >= deadline) throw new Error('INSTAGRAM_POLL_TIMEOUT')
     await sleep(intervalMs)
   }
+}
+
+export async function diagnoseInstagramContainer({outputLocation, caption = 'Diagnostic upload — not published'}, fetchImpl = fetch, pollOptions = {}) {
+  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN
+  const businessAccountId = process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID
+  if (!accessToken || !businessAccountId) throw new Error('INSTAGRAM_NOT_CONFIGURED')
+  const videoUrl = buildVideoUrl(outputLocation)
+  const creationId = await createContainer({videoUrl, caption, accessToken, businessAccountId}, fetchImpl)
+  const result = await pollUntilFinished({creationId, accessToken}, fetchImpl, pollOptions)
+  return {creationId, ...result, published: false}
 }
 
 export async function publishContainer({creationId, accessToken, businessAccountId}, fetchImpl = fetch) {

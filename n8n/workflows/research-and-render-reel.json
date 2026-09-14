@@ -8,7 +8,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 9,17 * * *"
+              "expression": "0 */6 * * *"
             }
           ]
         }
@@ -27,7 +27,11 @@
         "method": "GET",
         "url": "http://renderer:3001/v1/topic-history",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 15000,
           "neverError": true
         }
@@ -43,7 +47,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const rankedItems = $items('Score Developer Tool Trends').map((item) => item.json).filter((item) => item.source_url);\nconst recentTopics = ($json?.recent || []).map((t) => `${t.tool_name} (${t.category})`);\nconst publisherCounts = new Map();\nconst sourceItems = [];\nfor (const item of rankedItems.sort((a, b) => b.trend_score - a.trend_score)) {\n  const count = publisherCounts.get(item.publisher) ?? 0;\n  if (count >= 6) continue;\n  publisherCounts.set(item.publisher, count + 1);\n  sourceItems.push(item);\n  if (sourceItems.length >= 45) break;\n}\nif (sourceItems.length < 5) throw new Error('RESEARCH_INSUFFICIENT_TOOL_SIGNALS');\nconst prompt = `You are an evidence-first researcher and SEO strategist for short videos aimed at software developers. Analyze only the RANKED SOURCE MATERIAL below. Never invent product capabilities, adoption numbers, pricing, release dates, or market claims.\n\nFind new developments across the whole world of software engineering and AI that materially make developers faster or safer -- not only AI coding agents and agent harnesses. Actively vary the category run to run: coding agents, AI IDEs, agent harnesses, MCP and tool-calling systems, automation platforms, local AI, testing and evals, observability and tracing, deployment tools, open-source frameworks, SDKs, APIs, programming languages, databases, security vulnerabilities and fixes, performance engineering, and general software engineering news are all in scope equally. Explain the concrete developer workflow improved: what painful step changes, who benefits, and how a developer would use the tool.\n\nUse trend_score as a discovery signal, not proof. Prefer recent releases, evidence from authoritative sources, repeated mentions across independent publishers, specific capabilities, and topics with clear search intent. Reject generic AI news, consumer-only apps, vague thought leadership, unsupported hype, token-price speculation, and tools without a concrete developer use case.\n\n${recentTopics.length ? `The last several videos already covered: ${recentTopics.join('; ')}. Do not recommend any of these again and avoid picking another topic in the same narrow category (e.g. if recent topics were agent harnesses, actively prefer a different category this time) unless a genuinely new, materially different development has emerged since.` : ''}\n\nChoose exactly 5 candidates and one recommendation suitable for a factual, fast-paced 30–60 second vertical reel. Each candidate must have at least one source URL; the recommendation should use two independent sources when available. Every factual claim must cite an exact source_url from the material.\n\nCreate an SEO brief around how developers would search for the tool. Use natural keywords, not keyword stuffing. Titles should promise a concrete benefit without fake urgency. Hashtags must be relevant and limited to 5-8.\n\nReturn ONLY valid JSON matching this schema:\n{\"recommended_topic\":{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"one_line_value\":\"\",\"developer_workflow\":\"\",\"who_it_helps\":\"\",\"why_now\":\"\",\"hook\":\"\",\"why_it_matters\":\"\",\"visual_angle\":\"\",\"trend_score\":0,\"claims\":[{\"claim_id\":\"c1\",\"statement\":\"\",\"source_url\":\"\",\"publisher\":\"\",\"published_at\":\"\",\"retrieved_at\":\"${new Date().toISOString()}\",\"confidence\":0.0,\"verification_notes\":\"\"}],\"seo_brief\":{\"primary_keyword\":\"\",\"related_keywords\":[\"\"],\"search_intent\":\"informational|commercial|tutorial\",\"title_options\":[\"\",\"\",\"\"],\"description\":\"\",\"hashtags\":[\"\"]}},\"candidates\":[{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"developer_workflow\":\"\",\"why_now\":\"\",\"trend_score\":0,\"source_urls\":[\"\"]}],\"research_policy\":{\"requires_human_review\":true,\"content_disclosure\":\"AI-assisted research and narration; edited visuals.\"}}\n\nRANKED SOURCE MATERIAL:\n${JSON.stringify(sourceItems)}`;\nreturn [{ json: { prompt, source_count: sourceItems.length, sources: sourceItems, scoring_version: 'developer-tools-v1' } }];"
+        "jsCode": "const rankedItems = $items('Score Developer Tool Trends').map((item) => item.json).filter((item) => item.source_url);\nconst topicArchive = ($json?.recent || []).map((t) => `${t.tool_name}: ${t.topic} (${t.category})`);\nconst publisherCounts = new Map();\nconst categoryBuckets = new Map();\nfor (const item of rankedItems.sort((a, b) => b.trend_score - a.trend_score)) {\n  const count = publisherCounts.get(item.publisher) ?? 0;\n  if (count >= 6) continue;\n  publisherCounts.set(item.publisher, count + 1);\n  const category = item.content_category || 'other';\n  if (!categoryBuckets.has(category)) categoryBuckets.set(category, []);\n  categoryBuckets.get(category).push(item);\n}\nconst sourceItems = [];\nconst categories = [...categoryBuckets.keys()];\nwhile (sourceItems.length < 45 && categories.some((category) => categoryBuckets.get(category).length)) {\n  for (const category of categories) {\n    const next = categoryBuckets.get(category).shift();\n    if (next) sourceItems.push(next);\n    if (sourceItems.length >= 45) break;\n  }\n}\nif (sourceItems.length < 5) throw new Error('RESEARCH_INSUFFICIENT_TOOL_SIGNALS');\nconst topicShape = {topic:'',tool_name:'',category:'',one_line_value:'',developer_workflow:'',who_it_helps:'',why_now:'',hook:'',why_it_matters:'',visual_angle:'',trend_score:0,claims:[{claim_id:'c1',statement:'',source_url:'',publisher:'',published_at:'',retrieved_at:new Date().toISOString(),confidence:0,verification_notes:''}],seo_brief:{primary_keyword:'',related_keywords:[''],search_intent:'informational|commercial|tutorial',title_options:['','',''],description:'',hashtags:['']}};\nconst schema = {recommended_topic:topicShape,candidates:[topicShape],research_policy:{requires_human_review:true,content_disclosure:'AI-assisted research and narration; edited visuals.'}};\nconst prompt = `You are an evidence-first researcher and SEO strategist for short videos aimed at software developers. Analyze only the RANKED SOURCE MATERIAL below. Never invent product capabilities, adoption numbers, pricing, release dates, or market claims.\n\nFind new developments across the whole world of software engineering and AI that materially make developers faster or safer. Treat coding agents, AI IDEs, agent harnesses, MCP systems, automation, local AI, testing, observability, deployment, open-source frameworks, SDKs, APIs, programming languages, databases, security, performance engineering, and general software engineering as equally eligible categories. Explain the concrete developer workflow improved.\n\nUse trend_score as a discovery signal, not proof. Prefer recent releases, authoritative sources, independent corroboration, specific capabilities, and clear search intent. Reject generic AI news, consumer-only apps, vague thought leadership, unsupported hype, speculation, and tools without a concrete developer use case.\n\n${topicArchive.length ? `PERMANENT EXCLUSION ARCHIVE -- videos already rendered: ${topicArchive.join('; ')}. Never choose any archived tool or substantially equivalent topic, even if it has a new release or slightly different name.` : ''}\n\nChoose exactly 5 distinct candidates from different categories when the evidence allows, ranked best-first. recommended_topic must equal candidates[0]. Every candidate must include the full evidence and SEO fields shown in the schema, including at least one exact source-backed claim, so any unused candidate can safely replace the first choice. Use two independent sources per candidate when available. Every factual claim must cite an exact source_url from the material.\n\nCreate an SEO brief around natural developer search language. Titles should promise a concrete benefit without fake urgency. Limit hashtags to 5-8.\n\nReturn ONLY valid JSON matching this schema:\n${JSON.stringify(schema)}\n\nRANKED SOURCE MATERIAL:\n${JSON.stringify(sourceItems)}`;\nreturn [{json:{prompt,source_count:sourceItems.length,sources:sourceItems,scoring_version:'developer-tools-v2-balanced'}}];"
       },
       "id": "af5f69ff-5d43-439d-80bf-b74085e60214",
       "name": "Build Research Prompt",
@@ -213,7 +217,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const rawItems = $input.all().map((item) => item.json);\nconst now = Date.now();\nconst developerTerms = ['developer', 'coding', 'code', 'agent', 'agentic', 'mcp', 'model context protocol', 'ide', 'cli', 'sdk', 'api', 'automation', 'workflow', 'testing', 'evaluation', 'observability', 'open source', 'framework', 'debug', 'deploy'];\nconst harnessTerms = ['agent harness', 'orchestration', 'tool calling', 'computer use', 'memory', 'evals', 'sandbox', 'guardrail', 'tracing', 'prompt management'];\nconst authorityWeights = { 'openai.com': 18, 'github.blog': 18, 'huggingface.co': 17, 'blog.google': 17, 'aws.amazon.com': 16, 'vercel.com': 15, 'blog.jetbrains.com': 15, 'producthunt.com': 10, 'dev.to': 8 };\nconst normalized = [];\nconst seen = new Set();\nfor (const item of rawItems) {\n  const sourceUrl = String(item.link ?? item.guid ?? '').trim();\n  if (!sourceUrl || seen.has(sourceUrl)) continue;\n  seen.add(sourceUrl);\n  const publisher = (sourceUrl.split('://')[1] ?? '').split('/')[0].split('?')[0].split('#')[0].replace(/^www\\./, '').toLowerCase() || 'unknown';\n  const title = String(item.title ?? '').trim();\n  const summary = String(item.contentSnippet ?? item.content ?? item.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 900);\n  const searchable = `${title} ${summary}`.toLowerCase();\n  const publishedAt = item.isoDate ?? item.pubDate ?? item.updated ?? '';\n  const publishedMs = Date.parse(publishedAt);\n  const ageDays = Number.isFinite(publishedMs) ? Math.max(0, (now - publishedMs) / 86400000) : 365;\n  const recencyScore = ageDays <= 2 ? 30 : ageDays <= 7 ? 24 : ageDays <= 14 ? 17 : ageDays <= 30 ? 10 : 3;\n  const developerHits = developerTerms.filter((term) => searchable.includes(term));\n  const harnessHits = harnessTerms.filter((term) => searchable.includes(term));\n  const developerRelevance = Math.min(30, developerHits.length * 5 + harnessHits.length * 4);\n  const authorityScore = Object.entries(authorityWeights).find(([domain]) => publisher.includes(domain))?.[1] ?? 6;\n  const toolTokens = [...new Set(title.toLowerCase().match(/[a-z][a-z0-9+.-]{2,}/g) ?? [])].filter((token) => !developerTerms.includes(token) && !['with', 'from', 'your', 'this', 'that', 'the', 'and', 'for', 'new'].includes(token));\n  normalized.push({ title, summary, source_url: sourceUrl, publisher, published_at: publishedAt, age_days: Math.round(ageDays * 10) / 10, recency_score: recencyScore, developer_relevance: developerRelevance, authority_score: authorityScore, matched_developer_terms: developerHits, matched_harness_terms: harnessHits, tool_tokens: toolTokens.slice(0, 8) });\n}\nconst tokenSources = new Map();\nfor (const item of normalized) for (const token of item.tool_tokens) {\n  if (!tokenSources.has(token)) tokenSources.set(token, new Set());\n  tokenSources.get(token).add(item.publisher);\n}\nfor (const item of normalized) {\n  const crossSourceMentions = Math.max(1, ...item.tool_tokens.map((token) => tokenSources.get(token)?.size ?? 1));\n  const momentumScore = Math.min(22, (crossSourceMentions - 1) * 7 + Math.min(8, item.tool_tokens.length));\n  item.cross_source_mentions = crossSourceMentions;\n  item.momentum_score = momentumScore;\n  item.trend_score = Math.min(100, item.recency_score + item.developer_relevance + item.authority_score + momentumScore);\n  item.seo_terms = [...new Set([...item.matched_developer_terms, ...item.matched_harness_terms, ...item.tool_tokens.slice(0, 4)])].slice(0, 10);\n}\nconst ranked = normalized.filter((item) => item.developer_relevance >= 5).sort((a, b) => b.trend_score - a.trend_score).slice(0, 60);\nif (ranked.length < 5) throw new Error('INSUFFICIENT_DEVELOPER_TOOL_SIGNALS');\nreturn ranked.map((json) => ({ json }));"
+        "jsCode": "const rawItems = $input.all().map((item) => item.json);\nconst now = Date.now();\nconst developerTerms = ['developer', 'coding', 'code', 'agent', 'agentic', 'mcp', 'model context protocol', 'ide', 'cli', 'sdk', 'api', 'automation', 'workflow', 'testing', 'evaluation', 'observability', 'open source', 'framework', 'debug', 'deploy', 'database', 'security', 'performance'];\nconst harnessTerms = ['agent harness', 'orchestration', 'tool calling', 'computer use', 'memory', 'evals', 'sandbox', 'guardrail', 'tracing', 'prompt management'];\nconst categoryRules = [\n  ['security', ['security', 'vulnerability', 'cve', 'supply chain', 'malware', 'patch']],\n  ['databases', ['database', 'postgres', 'mysql', 'sqlite', 'query engine', 'storage']],\n  ['testing', ['testing', 'unit test', 'evaluation', 'evals', 'benchmark']],\n  ['observability', ['observability', 'tracing', 'telemetry', 'monitoring']],\n  ['deployment', ['deploy', 'deployment', 'container', 'serverless', 'cloud']],\n  ['languages', ['programming language', 'compiler', 'runtime', 'typescript', 'javascript', 'python', 'rust']],\n  ['performance', ['performance', 'latency', 'faster', 'optimization', 'build time']],\n  ['agents', ['agent', 'agentic', 'mcp', 'tool calling', 'computer use', 'harness']],\n  ['automation', ['automation', 'workflow', 'cli']],\n  ['frameworks', ['framework', 'sdk', 'api', 'open source']],\n];\nconst authorityWeights = { 'openai.com': 18, 'github.blog': 18, 'huggingface.co': 17, 'blog.google': 17, 'aws.amazon.com': 16, 'vercel.com': 15, 'blog.jetbrains.com': 15, 'producthunt.com': 10, 'dev.to': 8 };\nconst normalized = [];\nconst seen = new Set();\nfor (const item of rawItems) {\n  const sourceUrl = String(item.link ?? item.guid ?? '').trim();\n  if (!sourceUrl || seen.has(sourceUrl)) continue;\n  seen.add(sourceUrl);\n  const publisher = (sourceUrl.split('://')[1] ?? '').split('/')[0].split('?')[0].split('#')[0].replace(/^www\\./, '').toLowerCase() || 'unknown';\n  const title = String(item.title ?? '').trim();\n  const summary = String(item.contentSnippet ?? item.content ?? item.description ?? '').replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 900);\n  const searchable = `${title} ${summary}`.toLowerCase();\n  const publishedAt = item.isoDate ?? item.pubDate ?? item.updated ?? '';\n  const publishedMs = Date.parse(publishedAt);\n  const ageDays = Number.isFinite(publishedMs) ? Math.max(0, (now - publishedMs) / 86400000) : 365;\n  const recencyScore = ageDays <= 2 ? 30 : ageDays <= 7 ? 24 : ageDays <= 14 ? 17 : ageDays <= 30 ? 10 : 3;\n  const developerHits = developerTerms.filter((term) => searchable.includes(term));\n  const harnessHits = harnessTerms.filter((term) => searchable.includes(term));\n  const developerRelevance = Math.min(30, developerHits.length * 5 + Math.min(4, harnessHits.length));\n  const authorityScore = Object.entries(authorityWeights).find(([domain]) => publisher.includes(domain))?.[1] ?? 6;\n  const toolTokens = [...new Set(title.toLowerCase().match(/[a-z][a-z0-9+.-]{2,}/g) ?? [])].filter((token) => !developerTerms.includes(token) && !['with', 'from', 'your', 'this', 'that', 'the', 'and', 'for', 'new'].includes(token));\n  const contentCategory = categoryRules.find(([, terms]) => terms.some((term) => searchable.includes(term)))?.[0] ?? 'general-engineering';\n  normalized.push({ title, summary, source_url: sourceUrl, publisher, content_category: contentCategory, published_at: publishedAt, age_days: Math.round(ageDays * 10) / 10, recency_score: recencyScore, developer_relevance: developerRelevance, authority_score: authorityScore, matched_developer_terms: developerHits, matched_harness_terms: harnessHits, tool_tokens: toolTokens.slice(0, 8) });\n}\nconst tokenSources = new Map();\nfor (const item of normalized) for (const token of item.tool_tokens) {\n  if (!tokenSources.has(token)) tokenSources.set(token, new Set());\n  tokenSources.get(token).add(item.publisher);\n}\nfor (const item of normalized) {\n  const crossSourceMentions = Math.max(1, ...item.tool_tokens.map((token) => tokenSources.get(token)?.size ?? 1));\n  const momentumScore = Math.min(22, (crossSourceMentions - 1) * 7 + Math.min(8, item.tool_tokens.length));\n  item.cross_source_mentions = crossSourceMentions;\n  item.momentum_score = momentumScore;\n  item.trend_score = Math.min(100, item.recency_score + item.developer_relevance + item.authority_score + momentumScore);\n  item.seo_terms = [...new Set([...item.matched_developer_terms, ...item.matched_harness_terms, ...item.tool_tokens.slice(0, 4)])].slice(0, 10);\n}\nconst ranked = normalized.filter((item) => item.developer_relevance >= 5).sort((a, b) => b.trend_score - a.trend_score).slice(0, 60);\nif (ranked.length < 5) throw new Error('INSUFFICIENT_DEVELOPER_TOOL_SIGNALS');\nreturn ranked.map((json) => ({ json }));"
       },
       "id": "score-developer-tool-trends",
       "name": "Score Developer Tool Trends",
@@ -461,6 +465,31 @@
     },
     {
       "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/topic-history/select",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { ...$json, research: $json.research } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "select-unused-topic",
+      "name": "Select Unused Topic",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        0
+      ]
+    },
+    {
+      "parameters": {
         "jsCode": "const research = $json.research;\nconst topic = research?.recommended_topic;\nif (!topic) throw new Error('SEO_MISSING_RECOMMENDED_TOPIC');\nconst incoming = topic.seo_brief ?? {};\nconst toolName = String(topic.tool_name ?? topic.topic ?? 'AI developer tool').trim();\nconst primaryKeyword = String(incoming.primary_keyword ?? `${toolName} for developers`).trim();\nconst relatedKeywords = [...new Set((Array.isArray(incoming.related_keywords) ? incoming.related_keywords : []).map((value) => String(value).trim()).filter(Boolean))].slice(0, 8);\nconst titleOptions = [...new Set((Array.isArray(incoming.title_options) ? incoming.title_options : []).map((value) => String(value).trim()).filter(Boolean))].slice(0, 5);\nif (!titleOptions.length) titleOptions.push(`${toolName}: the developer workflow it improves`);\nconst hashtags = [...new Set((Array.isArray(incoming.hashtags) ? incoming.hashtags : []).map((value) => `#${String(value).replace(/^#/, '').replace(/[^A-Za-z0-9_]/g, '')}`).filter((value) => value.length > 1))].slice(0, 8);\nfor (const fallback of ['#AITools', '#DeveloperTools', '#Coding']) { if (hashtags.length >= 5) break; if (!hashtags.includes(fallback)) hashtags.push(fallback); }\nconst seoBrief = { primary_keyword: primaryKeyword, related_keywords: relatedKeywords, search_intent: incoming.search_intent ?? 'informational', title_options: titleOptions, description: String(incoming.description ?? topic.one_line_value ?? topic.why_it_matters ?? '').trim(), hashtags };\nresearch.recommended_topic.seo_brief = seoBrief;\nreturn [{ json: { ...$json, research, seo_brief: seoBrief } }];"
       },
       "id": "finalize-seo-brief",
@@ -478,11 +507,14 @@
         "url": "http://renderer:3001/v1/topic-history",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { tool_name: $json.research.recommended_topic.tool_name, category: $json.research.recommended_topic.category, topic: $json.research.recommended_topic.topic } }}",
+        "jsonBody": "={{ { tool_name: $items('Build Dialogue Audio and Subtitle Render Job')[0].json.research.recommended_topic.tool_name, category: $items('Build Dialogue Audio and Subtitle Render Job')[0].json.research.recommended_topic.category, topic: $items('Build Dialogue Audio and Subtitle Render Job')[0].json.research.recommended_topic.topic, render: $json } }}",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
-          "timeout": 15000,
-          "neverError": true
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
         }
       },
       "id": "record-topic-history",
@@ -490,13 +522,13 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
-        160
+        3240,
+        0
       ]
     },
     {
       "parameters": {
-        "jsCode": "const research = $items('Finalize SEO Brief')[0]?.json?.research;\nif (!research?.recommended_topic) throw new Error('SCRIPT_MISSING_RESEARCH');\nconst topic = research.recommended_topic;\nconst prompt = `Write a clean, evidence-based dialogue for a 30–60 second vertical video about the recommended AI developer tool below. Return exactly six short alternating turns, beginning with Peter.\n\nDialogue structure:\n1. Peter introduces the tool and the developer pain it addresses.\n2. Stewie asks why it is needed.\n3. Peter explains the concrete workflow or capability.\n4. Stewie questions how it can be used or whether it is genuinely useful.\n5. Peter answers with a specific evidence-backed benefit.\n6. Stewie gives a concise, slightly skeptical but positive closing takeaway.\n\nFocus on one primary tool and one coherent use case. Do not combine unrelated products, models, or claims in the same dialogue. Every turn must be one sentence: complete, conversational, and written with simple grammar and a clear subject. Keep the dialogue natural and conversational with no filler or padding — there is no strict upper word limit, so prioritize covering the tool well over hitting a target length. Peter is plain-spoken and mildly funny; Stewie is precise, skeptical, and witty. Keep every line clean, natural, and easy to say aloud. Name the tool early, use the primary SEO keyword naturally at most once, and never include stage directions, headings, URLs, profanity, keyword stuffing, sentence fragments, or unsupported hype. Use only facts from the research package.\n\nAfter writing the dialogue, plan 6–8 relevant internet image cues, with at least one cue for every one of the six turns so a matching picture is on screen for the whole reel. Each cue must name an exact phrase spoken in its zero-based turn_index, a focused image-search query, kind logo or screenshot, a visual_purpose of identity, interface, mechanism, or outcome, and a source_url to the relevant product, documentation, article or repository page. Use provided research URLs where possible, preferring the tool's official product page, documentation page, or GitHub repository over news articles because the collector screenshots that page and extracts its images. Never invent direct image URLs. Include different useful views: product identity, the actual UI/workflow, a feature or diagram, and a concrete outcome. Match the visual to the spoken claim. No generic title cards.\n\nReturn ONLY JSON: {\"title\":\"\",\"focus\":\"\",\"source_start_seconds\":0,\"turns\":[{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"}],\"visuals\":[{\"turn_index\":0,\"phrase\":\"exact spoken phrase\",\"query\":\"tool name screenshot\",\"kind\":\"screenshot\",\"visual_purpose\":\"interface\",\"source_url\":\"https://official-source-page\"}]}\nRECOMMENDED RESEARCH:\n${JSON.stringify(topic)}`;\nreturn [{ json: { prompt, research, seo_brief: $items('Finalize SEO Brief')[0]?.json?.seo_brief, source_start_seconds: 0 } }];"
+        "jsCode": "const research = $items('Finalize SEO Brief')[0]?.json?.research;\nif (!research?.recommended_topic) throw new Error('SCRIPT_MISSING_RESEARCH');\nconst topic = research.recommended_topic;\nconst prompt = `Write a clean, evidence-based dialogue for a 30–60 second vertical video about the recommended AI developer tool below. Return exactly six short alternating turns, beginning with Peter.\n\nDialogue structure:\n1. Peter introduces the tool and the developer pain it addresses.\n2. Stewie asks why it is needed.\n3. Peter explains the concrete workflow or capability.\n4. Stewie questions how it can be used or whether it is genuinely useful.\n5. Peter answers with a specific evidence-backed benefit.\n6. Stewie gives a concise, slightly skeptical but positive closing takeaway.\n\nFocus on one primary tool and one coherent use case. Do not combine unrelated products, models, or claims in the same dialogue. Every turn must be one sentence: complete, conversational, and written with simple grammar and a clear subject. Keep the dialogue natural and conversational with no filler or padding. Peter is plain-spoken and mildly funny; Stewie is precise, skeptical, and witty. Keep every line clean, natural, and easy to say aloud. Name the tool early, use the primary SEO keyword naturally at most once, and never include stage directions, headings, URLs, profanity, keyword stuffing, sentence fragments, or unsupported hype. Use only facts from the research package.\n\nAfter writing the dialogue, plan 8–12 distinct visual cues, with every turn covered and two cues in the most information-dense turns. Each cue must name an exact phrase spoken in its zero-based turn_index, a focused image-search query, kind logo or screenshot, a visual_purpose of identity, interface, mechanism, outcome, evidence, reaction, or context, and a source_url to the exact product, documentation, repository, or evidence page. Prefer official UI screenshots, GitHub README diagrams, code, terminal output, benchmarks, and readable product imagery. Stock images are allowed only for reaction or context and must never serve as evidence for a named product. Never request generic approval/review imagery, generic article headers, government documents, unrelated products, or repeated variants of the same artwork. Claude Vision will reject irrelevant candidates and the run will fail unless eight distinct images survive, so choose visually provable beats and precise queries.\n\nReturn ONLY JSON: {\"title\":\"\",\"focus\":\"\",\"source_start_seconds\":0,\"turns\":[{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"}],\"visuals\":[{\"turn_index\":0,\"phrase\":\"exact spoken phrase\",\"query\":\"tool name screenshot\",\"kind\":\"screenshot\",\"visual_purpose\":\"interface\",\"source_url\":\"https://official-source-page\"}]}\nRECOMMENDED RESEARCH:\n${JSON.stringify(topic)}`;\nreturn [{ json: { prompt, research, seo_brief: $items('Finalize SEO Brief')[0]?.json?.seo_brief, source_start_seconds: 0 } }];"
       },
       "id": "script-prompt",
       "name": "Build Peter and Stewie Dialogue Prompt",
@@ -665,13 +697,16 @@
     },
     {
       "parameters": {
-        "jsCode": "const context = $items('Build Dialogue Audio and Subtitle Render Job')[0]?.json ?? {};\nconst topic = context.research?.recommended_topic ?? {};\nconst seoBrief = topic.seo_brief ?? {};\nconst dialogueLines = (context.dialogue || []).map((turn) => `${turn.speaker}: ${turn.text}`).join('\\n');\nconst prompt = `Write an Instagram Reel caption for a short animated dialogue video between Peter and Stewie about ${String(topic.tool_name ?? topic.topic ?? 'an AI developer tool')}.\\n\\nHook: ${topic.hook ?? ''}\\nOne-line value: ${topic.one_line_value ?? ''}\\n\\nDialogue:\\n${dialogueLines}\\n\\nExisting SEO keywords: ${(seoBrief.related_keywords || []).join(', ')}\\nExisting hashtag ideas: ${(seoBrief.hashtags || []).join(' ')}\\n\\nWrite a short, punchy caption (1-3 sentences, no hashtags inline) that hooks a developer scrolling Instagram, then 5-8 relevant hashtags. Reuse or refine the existing hashtag ideas above rather than inventing unrelated ones. No emojis unless they add real value. No stage directions.\\n\\nReturn ONLY JSON: {\"caption\":\"\",\"hashtags\":[\"#Tag1\",\"#Tag2\"]}`;\nreturn [{ json: { prompt, outputLocation: $json.outputLocation, seo_brief: seoBrief } }];"
+        "jsCode": "const context = $items('Build Dialogue Audio and Subtitle Render Job')[0]?.json ?? {};\nconst topic = context.research?.recommended_topic ?? {};\nconst seoBrief = topic.seo_brief ?? {};\nconst dialogueLines = (context.dialogue || []).map((turn) => `${turn.speaker}: ${turn.text}`).join('\\n');\nconst prompt = `Write an Instagram Reel caption for a short animated dialogue video between Peter and Stewie about ${String(topic.tool_name ?? topic.topic ?? 'an AI developer tool')}.\\n\\nHook: ${topic.hook ?? ''}\\nOne-line value: ${topic.one_line_value ?? ''}\\n\\nDialogue:\\n${dialogueLines}\\n\\nExisting SEO keywords: ${(seoBrief.related_keywords || []).join(', ')}\\nExisting hashtag ideas: ${(seoBrief.hashtags || []).join(' ')}\\n\\nWrite a short, punchy caption (1-3 sentences, no hashtags inline) that hooks a developer scrolling Instagram, then 5-8 relevant hashtags. Reuse or refine the existing hashtag ideas above rather than inventing unrelated ones. No emojis unless they add real value. No stage directions.\\n\\nReturn ONLY JSON: {\"caption\":\"\",\"hashtags\":[\"#Tag1\",\"#Tag2\"]}`;\nreturn [{ json: { prompt, outputLocation: $json.render?.outputLocation ?? $json.outputLocation, seo_brief: seoBrief } }];"
       },
       "id": "instagram-caption-prompt",
       "name": "Build Instagram Caption Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3360, 0]
+      "position": [
+        3360,
+        0
+      ]
     },
     {
       "parameters": {
@@ -680,16 +715,30 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {"name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}"},
-            {"name": "anthropic-version", "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"},
-            {"name": "Content-Type", "value": "application/json"}
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 1024, messages: [{ role: 'user', content: $json.prompt }] } }}",
         "options": {
-          "response": {"response": {"fullResponse": true, "responseFormat": "json"}},
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
           "timeout": 60000,
           "neverError": true
         }
@@ -698,7 +747,10 @@
       "name": "Write Instagram Caption with Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3600, 0]
+      "position": [
+        3600,
+        0
+      ]
     },
     {
       "parameters": {
@@ -708,7 +760,10 @@
       "name": "Route Instagram Caption Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3840, 0]
+      "position": [
+        3840,
+        0
+      ]
     },
     {
       "parameters": {
@@ -716,13 +771,22 @@
         "url": "http://renderer:3001/v1/publish/instagram",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{"name": "Content-Type", "value": "application/json"}]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { outputLocation: $json.outputLocation, caption: $json.caption } }}",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 180000
         }
       },
@@ -730,7 +794,10 @@
       "name": "Publish to Instagram",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [4080, 0]
+      "position": [
+        4080,
+        0
+      ]
     },
     {
       "id": "collect-script-images",
@@ -1040,6 +1107,17 @@
       "main": [
         [
           {
+            "node": "Select Unused Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Unused Topic": {
+      "main": [
+        [
+          {
             "node": "Finalize SEO Brief",
             "type": "main",
             "index": 0
@@ -1048,17 +1126,6 @@
       ]
     },
     "Finalize SEO Brief": {
-      "main": [
-        [
-          {
-            "node": "Record Topic to History",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Record Topic to History": {
       "main": [
         [
           {
@@ -1187,19 +1254,62 @@
       ]
     },
     "Render 9:16 Reel with Subtitles": {
-      "main": [[{"node": "Build Instagram Caption Prompt", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Record Topic to History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Topic to History": {
+      "main": [
+        [
+          {
+            "node": "Build Instagram Caption Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build Instagram Caption Prompt": {
-      "main": [[{"node": "Write Instagram Caption with Claude", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Write Instagram Caption with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Write Instagram Caption with Claude": {
-      "main": [[{"node": "Route Instagram Caption Result", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Route Instagram Caption Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Route Instagram Caption Result": {
-      "main": [[{"node": "Publish to Instagram", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Publish to Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
+  "active": true,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"

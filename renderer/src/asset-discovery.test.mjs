@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {pageImages,publicAddress,readmeImages,assetKey,keyOf,purposeScore,isUsableVisualCue,SCREENSHOT_SLICES} from './asset-discovery.mjs';
+import {pageImages,publicAddress,readmeImages,assetKey,keyOf,purposeScore,isUsableVisualCue,SCREENSHOT_SLICES,validateVisualSelection} from './asset-discovery.mjs';
 import {buildVisualTimeline} from './visuals.mjs';
 test('extracts relevant page images and resolves relative sources',()=>{
   const result=pageImages('<meta property="og:image" content="/preview.png"><img src="/workflow.png" alt="Agent workflow"><img src="/ad.png" alt="Buy shoes">','https://example.com/docs','Agent workflow');
@@ -73,4 +73,12 @@ import {parseBraveResults} from './asset-discovery.mjs';
 test('Brave image results map onto the same candidate shape',()=>{
   const out=parseBraveResults({results:[{url:'https://page.example/a',title:'Arch diagram',properties:{url:'https://img.example/a.png',width:1200,height:700}}]},'arch');
   assert.deepEqual(out.map(r=>[r.url,r.sourceUrl,r.title]),[['https://img.example/a.png','https://page.example/a','Arch diagram']]);
+});
+test('visual preflight blocks fewer than eight distinct approved images',()=>{
+  const duplicated = Array.from({length:8},(_,index)=>({assetUrl:index<2?'https://cdn.example/same.png':`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'approved'}));
+  assert.throws(()=>validateVisualSelection(duplicated),/VISUAL_PREFLIGHT_FAILED:7_DISTINCT_IMAGES/);
+});
+test('visual preflight accepts eight distinct vision-approved images covering every turn',()=>{
+  const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'matches dialogue'}));
+  assert.equal(validateVisualSelection(visuals).distinctImages,8);
 });
