@@ -13,6 +13,7 @@ import {MEDIA_ROOT} from './validation.mjs';
 
 const exec = promisify(execFile);
 const CHROMIUM = process.env.REMOTION_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 export function publicAddress(address) {
   if (isIP(address) !== 4) return false;
   const [a,b] = address.split('.').map(Number);
@@ -181,10 +182,21 @@ export function parseBraveResults(json, query) {
 
 // Plain keyless DDG image search: no browser, no Fortress. DDG's i.js JSON endpoint needs a `vqd`
 // session token first, normally computed by DDG's own client-side JS on the search page; we scrape it
-// out of the page's HTML instead of running a real browser to get it. Rate-limits under bursts, in
-// which case the caller (discoverVisuals) just skips that cue rather than substituting a wrong image.
+// out of the page's HTML instead of running a real browser to get it. Rate-limits under bursts (a full
+// discovery run fires one of these per cue, back to back), so every call gets one backed-off retry and
+// a small pacing delay up front; if DDG still 403s, the caller (discoverVisuals) just skips that cue
+// rather than substituting a wrong image.
+async function getPublicWithRetry(url, headers) {
+  try {
+    return await getPublic(url, 0, headers);
+  } catch (error) {
+    if (!/ASSET_HTTP_(403|429)/.test(error.message)) throw error;
+    await sleep(2000);
+    return getPublic(url, 0, headers);
+  }
+}
 async function fetchDdgVqd(query) {
-  const {body} = await getPublic(`https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`, 0, {'User-Agent':'Mozilla/5.0'});
+  const {body} = await getPublicWithRetry(`https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`, {'User-Agent':'Mozilla/5.0'});
   const match = body.toString().match(/vqd=['"]?([\d-]+)['"]?/);
   if (!match) throw new Error('DDG_VQD_NOT_FOUND');
   return match[1];
@@ -196,8 +208,9 @@ export async function searchImages(query) {
     const result = await getPublic(`https://api.search.brave.com/res/v1/images/search?q=${q}&count=8&safesearch=strict`, 0, {Accept:'application/json', 'X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY});
     return parseBraveResults(JSON.parse(result.body.toString()), query);
   }
+  await sleep(500); // paces back-to-back cue searches so a full run doesn't burst DDG's rate limit
   const vqd = await fetchDdgVqd(query);
-  const result = await getPublic(`https://duckduckgo.com/i.js?l=us-en&o=json&q=${q}&vqd=${vqd}&f=,,,&p=1`, 0, {Accept:'application/json', Referer:'https://duckduckgo.com/'});
+  const result = await getPublicWithRetry(`https://duckduckgo.com/i.js?l=us-en&o=json&q=${q}&vqd=${vqd}&f=,,,&p=1`, {Accept:'application/json', Referer:'https://duckduckgo.com/'});
   return parseSearchResults(JSON.parse(result.body.toString()), query);
 }
 
