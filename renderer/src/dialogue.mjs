@@ -4,7 +4,14 @@ export function getActiveWordColor(speaker) {
   return speaker === 'stewie' ? '#FF3B30' : '#FFD60A';
 }
 
-export function buildDialogueTimeline(turns, {maxDurationSeconds = 29.5, maxWordsPerCaption = 4} = {}) {
+export function getReelDurationInFrames(dialogueDurationSeconds, {fps = 30, minDurationSeconds = 30, maxDurationSeconds = 60} = {}) {
+  const duration = Number(dialogueDurationSeconds);
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error('INVALID_DIALOGUE_DURATION');
+  if (duration > maxDurationSeconds) throw new Error(`DIALOGUE_EXCEEDS_MAX_DURATION:${duration.toFixed(3)}`);
+  return Math.ceil(Math.max(minDurationSeconds, duration) * fps);
+}
+
+export function buildDialogueTimeline(turns, {maxDurationSeconds = 60, maxWordsPerCaption = 4} = {}) {
   if (!Array.isArray(turns) || turns.length === 0) throw new Error('DIALOGUE_REQUIRED');
   const normalized = turns.map((turn, index) => {
     const speaker = String(turn.speaker ?? '').toLowerCase();
@@ -17,16 +24,17 @@ export function buildDialogueTimeline(turns, {maxDurationSeconds = 29.5, maxWord
   });
 
   const naturalDuration = normalized.reduce((sum, turn) => sum + turn.durationSeconds, 0);
-  const playbackRate = Math.max(1, naturalDuration / maxDurationSeconds);
+  if (naturalDuration > maxDurationSeconds) {
+    throw new Error(`DIALOGUE_EXCEEDS_MAX_DURATION:${naturalDuration.toFixed(3)}`);
+  }
+  const playbackRate = 1;
   const audioSegments = [];
   const captions = [];
   let cursor = 0;
 
   normalized.forEach((turn, turnIndex) => {
-    const effectiveDuration = turn.durationSeconds / playbackRate;
-    const end = naturalDuration > maxDurationSeconds && turnIndex === normalized.length - 1
-      ? maxDurationSeconds
-      : Math.min(maxDurationSeconds, cursor + effectiveDuration);
+    const effectiveDuration = turn.durationSeconds;
+    const end = cursor + effectiveDuration;
     audioSegments.push({speaker: turn.speaker, text: turn.text, audioPath: turn.audioPath, start: cursor, end, playbackRate});
 
     const words = turn.text.split(/\s+/).filter(Boolean);

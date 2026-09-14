@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {buildDialogueTimeline, getActiveWordColor} from './dialogue.mjs';
+import * as dialogueTools from './dialogue.mjs';
 import {validateRenderRequest} from './validation.mjs';
 
 const turns = [
@@ -12,14 +13,14 @@ const turns = [
   {speaker: 'stewie', text: 'That might actually save time', audioPath: '/media/dialogue-5-stewie.wav', durationSeconds: 5},
 ];
 
-test('dialogue timeline is sequential and compressed within 29.5 seconds', () => {
-  const timeline = buildDialogueTimeline(turns, {maxDurationSeconds: 29.5, maxWordsPerCaption: 4});
+test('dialogue timeline is sequential and supports the 60 second ceiling', () => {
+  const timeline = buildDialogueTimeline(turns, {maxDurationSeconds: 60, maxWordsPerCaption: 4});
 
   assert.equal(timeline.audioSegments.length, 6);
   assert.equal(timeline.audioSegments[0].start, 0);
   assert.equal(timeline.audioSegments[1].start, timeline.audioSegments[0].end);
-  assert.equal(timeline.audioSegments.at(-1).end, 29.5);
-  assert.ok(timeline.playbackRate > 1);
+  assert.equal(timeline.audioSegments.at(-1).end, 34);
+  assert.equal(timeline.playbackRate, 1);
   assert.ok(timeline.captions.every((caption) => caption.text.split(/\s+/).length <= 4));
   assert.deepEqual([...new Set(timeline.captions.map((caption) => caption.speaker))], ['peter', 'stewie']);
 });
@@ -34,6 +35,23 @@ test('dialogue timeline rejects an invalid speaker', () => {
     () => buildDialogueTimeline([{...turns[0], speaker: 'brian'}]),
     /INVALID_DIALOGUE_SPEAKER/,
   );
+});
+
+test('dialogue timeline rejects narration over one minute instead of accelerating it', () => {
+  const longTurns = turns.map((turn) => ({...turn, durationSeconds: 11}));
+
+  assert.throws(
+    () => buildDialogueTimeline(longTurns, {maxDurationSeconds: 60}),
+    /DIALOGUE_EXCEEDS_MAX_DURATION:66\.000/,
+  );
+});
+
+test('render frame count follows natural dialogue with only a 30 second minimum', () => {
+  assert.equal(typeof dialogueTools.getReelDurationInFrames, 'function');
+  assert.equal(dialogueTools.getReelDurationInFrames(20), 900);
+  assert.equal(dialogueTools.getReelDurationInFrames(52.72), 1582);
+  assert.equal(dialogueTools.getReelDurationInFrames(60), 1800);
+  assert.throws(() => dialogueTools.getReelDurationInFrames(60.01), /DIALOGUE_EXCEEDS_MAX_DURATION/);
 });
 
 test('render validation resolves every dialogue audio path inside media root', () => {

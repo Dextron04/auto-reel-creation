@@ -5,9 +5,10 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {buildDialogueTimeline} from './dialogue.mjs';
+import {buildDialogueTimeline, getReelDurationInFrames} from './dialogue.mjs';
 import {buildVisualTimeline} from './visuals.mjs';
 import {buildCharacterSegments} from './characters.mjs';
+import {createRenderReport} from './render-report.mjs';
 
 const browserExecutable = process.env.REMOTION_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
 const execFileAsync = promisify(execFile);
@@ -26,8 +27,14 @@ export async function renderReel(input) {
       ...turn,
       durationSeconds: await getAudioDurationSeconds(turn.audioPath),
     })));
-    const timeline = buildDialogueTimeline(measuredDialogue, {maxDurationSeconds: 29.5, maxWordsPerCaption: 4});
-    request = {...request, ...timeline, dialogue: measuredDialogue, voiceOverlay: null};
+    const timeline = buildDialogueTimeline(measuredDialogue, {maxDurationSeconds: 90, maxWordsPerCaption: 4});
+    request = {
+      ...request,
+      ...timeline,
+      durationInFrames: getReelDurationInFrames(timeline.durationSeconds, {maxDurationSeconds: 90}),
+      dialogue: measuredDialogue,
+      voiceOverlay: null,
+    };
   }
   request = {...request, visuals: buildVisualTimeline(request.visuals, {durationSeconds: request.durationInFrames/30, audioSegments: request.audioSegments, captions:request.captions})};
   request = {...request, characterSegments: buildCharacterSegments(request.audioSegments, request.characterImages)};
@@ -36,7 +43,10 @@ export async function renderReel(input) {
   const composition = await selectComposition({serveUrl, id: 'Reel', inputProps: request, browserExecutable});
   const outputLocation = path.join(OUTPUT_ROOT, `${input.jobId ?? `reel-${Date.now()}`}.mp4`);
   await renderMedia({composition: {...composition, durationInFrames: request.durationInFrames}, serveUrl, codec: 'h264', audioCodec: 'aac', outputLocation, inputProps: request, browserExecutable});
-  return {outputLocation, width: 1080, height: 1920, fps: 30, durationInFrames: request.durationInFrames};
+  const report = createRenderReport(request, outputLocation);
+  const reportLocation = `${outputLocation}.json`;
+  await fs.writeFile(reportLocation, JSON.stringify(report, null, 2));
+  return {...report, reportLocation, width: 1080, height: 1920, fps: 30};
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) renderReel(JSON.parse(process.argv[2] ?? '{}')).then(console.log).catch((error) => { console.error(error); process.exit(1); });
