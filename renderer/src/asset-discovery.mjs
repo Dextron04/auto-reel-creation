@@ -1,4 +1,6 @@
 import https from 'node:https';
+import http from 'node:http';
+import net from 'node:net';
 import {lookup} from 'node:dns/promises';
 import {isIP} from 'node:net';
 import fs from 'node:fs/promises';
@@ -6,25 +8,34 @@ import path from 'node:path';
 import {createHash, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
+import Anthropic from '@anthropic-ai/sdk';
+import {Fortress} from 'tilion-fortress';
+import {chromium} from 'playwright-core';
 import {MEDIA_ROOT} from './validation.mjs';
 
 const exec = promisify(execFile);
+const CHROMIUM = process.env.REMOTION_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
 export function publicAddress(address) {
   if (isIP(address) !== 4) return false;
   const [a,b] = address.split('.').map(Number);
   return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || (a === 198 && [18,19].includes(b)));
 }
 
+async function publicAddresses(hostname) {
+  const addresses = await lookup(hostname, {all:true, family:4});
+  if (!addresses.length || addresses.some(({address}) => !publicAddress(address))) throw new Error('NON_PUBLIC_ASSET');
+  return addresses;
+}
+
 // Resolve and pin the public address for every redirect. Never send local API credentials.
-export async function getPublic(urlString, redirects = 0) {
+export async function getPublic(urlString, redirects = 0, headers = {}) {
   const url = new URL(urlString);
   if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || redirects > 4) throw new Error('INVALID_ASSET_URL');
-  const addresses = await lookup(url.hostname, {all:true, family:4});
-  if (!addresses.length || addresses.some(({address}) => !publicAddress(address))) throw new Error('NON_PUBLIC_ASSET');
+  const addresses = await publicAddresses(url.hostname);
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {headers:{'User-Agent':'ReelVisualCollector/1.0'}, lookup: (_host, options, cb) => cb(null, options.all ? addresses : addresses[0].address, 4)}, res => {
+    const req = https.get(url, {headers:{'User-Agent':'ReelVisualCollector/1.0', ...headers}, lookup: (_host, options, cb) => cb(null, options.all ? addresses : addresses[0].address, 4)}, res => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        res.resume(); getPublic(new URL(res.headers.location, url).href, redirects+1).then(resolve,reject); return;
+        res.resume(); getPublic(new URL(res.headers.location, url).href, redirects+1, headers).then(resolve,reject); return;
       }
       if (res.statusCode !== 200) {res.resume(); reject(new Error(`ASSET_HTTP_${res.statusCode}`)); return;}
       let size = 0; const chunks = [];
@@ -37,83 +48,305 @@ export async function getPublic(urlString, redirects = 0) {
   });
 }
 
+// Chromium resolves DNS itself, so route it through a CONNECT proxy that applies the same public-address rule.
+async function withGuardedProxy(fn) {
+  const server = http.createServer((_req, res) => {res.writeHead(403); res.end();});
+  server.on('connect', async (req, socket, head) => {
+    const [host, port = '443'] = req.url.split(':');
+    try {
+      if (port !== '443') throw new Error('port');
+      const [{address}] = await publicAddresses(host);
+      const upstream = net.connect(443, address, () => {socket.write('HTTP/1.1 200 Connection Established\r\n\r\n'); upstream.write(head); upstream.pipe(socket); socket.pipe(upstream);});
+      upstream.on('error', () => socket.destroy()); socket.on('error', () => upstream.destroy());
+    } catch {socket.end('HTTP/1.1 403 Forbidden\r\n\r\n');}
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {return await fn(server.address().port);} finally {server.close();}
+}
+
+// Full-page screenshot sliced into distinct views (hero, middle, lower) so one page yields several relevant visuals.
+export const SCREENSHOT_SLICES = ['crop=iw:ih*0.42:0:0', 'crop=iw:ih*0.42:0:ih*0.29', 'crop=iw:ih*0.42:0:ih*0.58'];
+export async function screenshotPage(urlString, directory) {
+  const url = new URL(urlString);
+  if (url.protocol !== 'https:') throw new Error('INVALID_ASSET_URL');
+  await publicAddresses(url.hostname);
+  const shot = path.join(directory, `${randomUUID()}.shot.png`);
+  await withGuardedProxy(port => exec(CHROMIUM, ['--headless=new','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--hide-scrollbars','--window-size=1440,2400','--virtual-time-budget=6000',`--proxy-server=http://127.0.0.1:${port}`,`--screenshot=${shot}`,url.href], {timeout:45000}));
+  const slices = [];
+  for (const [index, crop] of SCREENSHOT_SLICES.entries()) {
+    const file = path.join(directory, `${randomUUID()}.slice.png`);
+    await exec('ffmpeg', ['-v','error','-y','-i',shot,'-frames:v','1','-vf',crop,file], {timeout:15000});
+    slices.push({localPath:file, url:url.href, assetId:`${url.href}#view${index}`, sourceUrl:url.href, kind:'screenshot', score:index === 0 ? 6 : 3, text:`page screenshot interface ${url.hostname}`});
+  }
+  await fs.unlink(shot).catch(() => {});
+  // ponytail: PNG size as an ink proxy; a slice under half the hero's size is footer whitespace on a short page.
+  const sizes = await Promise.all(slices.map(slice => fs.stat(slice.localPath).then(stat => stat.size)));
+  return slices.filter((_, index) => sizes[index] >= sizes[0] * 0.5);
+}
+
+// Identify the underlying picture behind CDN/proxy variants so the same artwork is never shown twice.
+export function assetKey(url) {
+  const decoded = decodeURIComponent(String(url));
+  const nested = Math.max(decoded.lastIndexOf('https://'), decoded.lastIndexOf('http://'));
+  const bare = (nested > 0 ? decoded.slice(nested) : decoded).split(/[?#]/)[0];
+  return bare.replace(/\/(?:w|width|h|height|s|size)_?\d+(?=\/)/gi, '').toLowerCase();
+}
+
 const decode = s => s.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'");
+const JUNK = /favicon|tracking|pixel|spacer|avatar|profile_image|badge|emoji|sprite|\/flags\//i;
 export function pageImages(html, base, query) {
   const terms = String(query).toLowerCase().split(/\W+/).filter(s => s.length > 2);
   const candidates = [];
-  for (const tag of html.match(/<(?:meta|img)\b[^>]*>/gi) || []) {
+  for (const tag of html.match(/<(?:meta|img|link)\b[^>]*>/gi) || []) {
     const attrs = Object.fromEntries([...tag.matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)].map(m => [m[1].toLowerCase(),decode(m[2])]));
     const social = /^(og:image|twitter:image)(:url)?$/.test(attrs.property || attrs.name || '');
-    const src = social ? attrs.content : attrs.src || attrs['data-src'];
+    const icon = /(?:^|\s)(?:apple-touch-)?icon(?:\s|$)/i.test(attrs.rel || '');
+    const src = social ? attrs.content : icon ? attrs.href : attrs.src || attrs['data-src'];
     if (!src) continue;
     try {
       const url = new URL(src,base).href;
-      if (!url.startsWith('https:') || /favicon|tracking|pixel|spacer/i.test(url)) continue;
+      if (!url.startsWith('https:') || JUNK.test(url)) continue;
       const text = `${attrs.alt || ''} ${url}`.toLowerCase();
       const matches = terms.filter(term => text.includes(term)).length;
-      if (!social && !matches) continue;
-      candidates.push({url,sourceUrl:base,kind:/logo/i.test(text)?'logo':'screenshot',score:matches*5+(social?8:0),social,alt:attrs.alt || '',text});
+      if (!social && !icon && !matches) continue;
+      const kind = icon || /logo/i.test(text) ? 'logo' : 'screenshot';
+      const iconScore = /apple-touch-icon/i.test(attrs.rel || '') ? 4 : icon ? 2 : 0;
+      candidates.push({url,sourceUrl:base,kind,icon,score:matches*5+(social?8:0)+iconScore,social,alt:attrs.alt || '',text});
     } catch {}
   }
   return [...new Map(candidates.sort((a,b)=>b.score-a.score).map(c=>[c.url,c])).values()];
 }
 
+// README screenshots and diagrams are usually the most representative pictures of a developer tool.
+export function readmeImages(markdown, repoUrl, query) {
+  const {owner, repo} = repoUrl.match(/github\.com\/(?<owner>[^/]+)\/(?<repo>[^/?#]+)/)?.groups ?? {};
+  if (!owner) return [];
+  const raw = `https://raw.githubusercontent.com/${owner}/${repo.replace(/\.git$/, '')}/HEAD/`;
+  const terms = String(query).toLowerCase().split(/\W+/).filter(s => s.length > 2);
+  const found = [...markdown.matchAll(/!\[([^\]]*)\]\(([^)\s]+)/g)].map(m => ({alt:m[1], src:m[2]}))
+    .concat([...markdown.matchAll(/<img\b[^>]*>/gi)].map(m => {
+      const attrs = Object.fromEntries([...m[0].matchAll(/([\w:-]+)\s*=\s*["']([^"']*)["']/g)].map(a => [a[1].toLowerCase(), decode(a[2])]));
+      return {alt:attrs.alt || '', src:attrs.src};
+    }));
+  const candidates = [];
+  for (const {alt, src} of found) {
+    if (!src || /\.svg(\?|$)/i.test(src) || /badge|shields\.io|img\.shields|actions\/workflows|codecov/i.test(src)) continue;
+    try {
+      const url = new URL(src, raw).href;
+      if (!url.startsWith('https:')) continue;
+      const text = `${alt} ${src}`.toLowerCase();
+      const matches = terms.filter(term => text.includes(term)).length;
+      candidates.push({url, sourceUrl:repoUrl, kind:/logo/i.test(text) ? 'logo' : 'screenshot', score:9 + matches*5 - candidates.length, alt, text:`readme ${text}`});
+    } catch {}
+  }
+  return candidates;
+}
+
+export function isUsableVisualCue(cue, dialogue) {
+  return Boolean(dialogue?.[Number(cue?.turn_index)] && String(cue?.phrase || '').trim());
+}
+
+const PURPOSES = ['identity','interface','mechanism','outcome'];
+export const keyOf = candidate => candidate.assetId ?? assetKey(candidate.url);
+export function purposeScore(candidate, purpose) {
+  const description = `${candidate.alt || ''} ${candidate.text || ''}`.toLowerCase();
+  if (purpose === 'identity') return (candidate.kind === 'logo' ? 12 : 0) + (candidate.social ? 4 : 0);
+  if (purpose === 'interface') return /screenshot|dashboard|interface|editor|terminal|console|ui|demo/.test(description) ? 12 : (candidate.social ? -3 : 0);
+  if (purpose === 'mechanism') return /diagram|architecture|workflow|pipeline|flow|agent|sandbox|readme/.test(description) ? 12 : (candidate.social ? -3 : 0);
+  return /result|output|benchmark|performance|comparison|chart|readme/.test(description) ? 12 : (candidate.social ? -3 : 0);
+}
+
+
+// Keyless web image search. ponytail: DuckDuckGo's unofficial JSON endpoint; swap for Brave/Google CSE if it starts rate limiting.
+export function parseSearchResults(json, query) {
+  const results = Array.isArray(json?.results) ? json.results : [];
+  return results.filter(r => r.image?.startsWith('https://') && Number(r.width) >= 400 && Number(r.height) >= 300).slice(0, 8)
+    .map((r, index) => ({url:r.image, sourceUrl:r.url, kind:'screenshot', score:9 - index, search:true, title:String(r.title || ''), text:`search ${String(r.title || '')} ${r.image}`.toLowerCase(), query}));
+}
+export function parseBraveResults(json, query) {
+  const results = Array.isArray(json?.results) ? json.results : [];
+  return parseSearchResults({results: results.map(r => ({image:r.properties?.url, url:r.url, title:r.title, width:r.properties?.width ?? 1000, height:r.properties?.height ?? 800}))}, query);
+}
+
+// Fortress (stealth Chromium, github.com/tiliondev/fortress) drives the real DDG images UI so the request
+// looks like a browser, not a bot — no vqd token dance, no raw-HTTP rate limiting. Lazily launched, reused
+// across searches in this process, torn down by closeFortress() when discovery finishes.
+let fortressState = null;
+async function fortressBrowser() {
+  if (!fortressState) fortressState = (async () => {
+    // No native mac/win binary published yet, so this falls back to Docker, whose default shm quota is
+    // too small for DDG's JS bundle and throws net::ERR_INSUFFICIENT_RESOURCES without this flag.
+    const f = await Fortress.launch({extraArgs:['--disable-dev-shm-usage']});
+    return {f, browser: await chromium.connectOverCDP(f.cdpUrl)};
+  })();
+  try {return await fortressState;}
+  catch (error) {fortressState = null; throw error;}
+}
+export async function closeFortress() {
+  if (!fortressState) return;
+  const state = await fortressState.catch(() => null);
+  fortressState = null;
+  if (state) {await state.browser.close().catch(() => {}); await state.f.close().catch(() => {});}
+}
+export async function searchImages(query) {
+  const q = encodeURIComponent(query);
+  // Keyed backend first when configured (untested here, kept behind the env var): https://api.search.brave.com/app/documentation
+  if (process.env.BRAVE_SEARCH_API_KEY) {
+    const result = await getPublic(`https://api.search.brave.com/res/v1/images/search?q=${q}&count=8&safesearch=strict`, 0, {Accept:'application/json', 'X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY});
+    return parseBraveResults(JSON.parse(result.body.toString()), query);
+  }
+  const {browser} = await fortressBrowser();
+  let page;
+  try {
+    page = await browser.newPage();
+    const [response] = await Promise.all([
+      page.waitForResponse(res => res.url().includes('duckduckgo.com/i.js'), {timeout:15000}),
+      page.goto(`https://duckduckgo.com/?q=${q}&iax=images&ia=images`, {waitUntil:'domcontentloaded', timeout:15000}),
+    ]);
+    return parseSearchResults(await response.json(), query);
+  } catch (error) {
+    await closeFortress(); // session may be dead; force a relaunch on the next search
+    throw error;
+  } finally {
+    if (page) await page.close().catch(() => {});
+  }
+}
+
+// Keyless, ToS-friendly source: the top GitHub repos for the tool, whose READMEs carry the real screenshots and diagrams.
+export async function githubReadmeCandidates(tool, query, fetchPage) {
+  const search = await getPublic(`https://api.github.com/search/repositories?q=${encodeURIComponent(tool)}&sort=stars&per_page=3`, 0, {Accept:'application/vnd.github+json'});
+  const repos = (JSON.parse(search.body.toString()).items || []).map(item => item.full_name).filter(Boolean);
+  const candidates = [];
+  for (const repo of repos) {
+    const readme = await fetchPage(`https://raw.githubusercontent.com/${repo}/HEAD/README.md`);
+    if (!readme.error) candidates.push(...readmeImages(readme.body.toString(), `https://github.com/${repo}`, query));
+  }
+  return candidates;
+}
+
+// Vision judge: Claude looks at the downloaded candidates and picks the one that illustrates the spoken line, or none.
+const JUDGE_MODEL = process.env.ANTHROPIC_VISUAL_JUDGE_MODEL ?? 'claude-haiku-4-5';
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+export function parseJudgement(text, count) {
+  const match = String(text).match(/\{[\s\S]*\}/);
+  try {
+    const parsed = JSON.parse(match?.[0] ?? '');
+    const best = Number(parsed.best);
+    return {index: Number.isInteger(best) && best >= 1 && best <= count ? best - 1 : null, reason: String(parsed.reason ?? '')};
+  } catch {return {index: null, reason: 'unparseable judgement'};}
+}
+export function judgePrompt({tool, topic, turnText, phrase, purpose, query}) {
+  const purposes = {identity:'the tool\'s logo or brand mark', interface:'the tool\'s actual user interface, editor, terminal or dashboard', mechanism:'a diagram or code showing how it works', outcome:'a result, benchmark, chart, bill or comparison'};
+  return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}. If none clearly fit, answer 0.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>"}`;
+}
+async function judgeVisuals(context, downloaded) {
+  if (!anthropic || !downloaded.length) return {index: downloaded.length ? 0 : null, reason: 'no judge configured'};
+  const content = [];
+  for (const [index, item] of downloaded.entries()) {
+    content.push({type:'text', text:`Image ${index + 1}: ${item.candidate.title || item.candidate.alt || item.candidate.kind} (from ${new URL(item.candidate.sourceUrl || item.candidate.url).hostname})`});
+    content.push({type:'image', source:{type:'base64', media_type:'image/jpeg', data:(await fs.readFile(item.thumb)).toString('base64')}});
+  }
+  content.push({type:'text', text:judgePrompt(context)});
+  const response = await anthropic.messages.create({model:JUDGE_MODEL, max_tokens:200, system:'You select pictures for short educational videos about developer tools. You only accept a picture that clearly and specifically illustrates what is being said.', messages:[{role:'user', content}]});
+  return parseJudgement(response.content.filter(block => block.type === 'text').map(block => block.text).join('\n'), downloaded.length);
+}
+
 export async function discoverVisuals(input) {
   const run = randomUUID(); const directory = path.join(MEDIA_ROOT,'visuals',run);
   await fs.mkdir(directory,{recursive:true});
-  const visuals = []; const report = []; const used = new Set(); const pages = new Map();
+  const visuals = []; const report = []; const used = new Set(); const pages = new Map(); const screenshots = new Map();
   const sources = (input.research?.recommended_topic?.claims || []).map(c=>c.source_url).filter(Boolean);
   const cues = (input.visualCues || []).slice(0,8);
+  const fetchPage = async url => {
+    if (!pages.has(url)) pages.set(url, getPublic(url).catch(error => ({error})));
+    return pages.get(url);
+  };
+  const fetchScreenshot = async url => {
+    if (!screenshots.has(url)) screenshots.set(url, screenshotPage(url, directory).catch(error => ({error})));
+    return screenshots.get(url);
+  };
+  const tool = String(input.research?.recommended_topic?.tool_name || input.research?.recommended_topic?.topic || 'the tool');
+  const topic = String(input.research?.recommended_topic?.one_line_value || input.focus || '');
   for (const cue of cues) {
-    const segment = input.dialogue?.[cue.turn_index];
-    if (!segment || !String(segment.text).toLowerCase().includes(String(cue.phrase || '').toLowerCase()) || !cue.phrase) {report.push({cue,status:'invalid_phrase'}); continue;}
+    if (!isUsableVisualCue(cue,input.dialogue)) {report.push({cue,status:'invalid_cue'}); continue;}
+    const purpose = PURPOSES.includes(cue.visual_purpose) ? cue.visual_purpose : 'interface';
+    const query = cue.query || cue.phrase;
     const candidates = [];
+    try {candidates.push(...await searchImages(purpose === 'identity' ? `${tool} logo` : `${tool} ${query}`));} catch (error) {report.push({search:query,error:error.message});}
+    try {candidates.push(...await githubReadmeCandidates(tool, query, fetchPage));} catch (error) {report.push({github:tool,error:error.message});}
     const urls = [...new Set([cue.source_url,...sources].filter(Boolean))].slice(0,3);
     for (const url of urls) {
-      try {
-        if (!pages.has(url)) pages.set(url, await getPublic(url));
-        const response = pages.get(url);
-        if (response.type.includes('text/html')) candidates.push(...pageImages(response.body.toString(),response.url,cue.query || cue.phrase));
-      } catch (error) {report.push({sourceUrl:url,error:error.message});}
-    }
-    // Broad public image search supplements product/docs pages without requiring an API key.
-    try {
-      const search = new URL('https://commons.wikimedia.org/w/api.php');
-      search.search = new URLSearchParams({action:'query',format:'json',generator:'search',gsrsearch:String(cue.query || cue.phrase),gsrnamespace:'6',gsrlimit:'4',prop:'imageinfo',iiprop:'url|extmetadata',iiurlwidth:'1000'});
-      const result = JSON.parse((await getPublic(search.href)).body);
-      for (const page of Object.values(result.query?.pages || {})) {
-        const info = page.imageinfo?.[0];
-        if (info) candidates.push({url:info.thumburl || info.url,sourceUrl:info.descriptionurl,kind:'screenshot',score:1,attribution:info.extmetadata});
+      const response = await fetchPage(url);
+      if (response.error) {report.push({sourceUrl:url,error:response.error.message}); continue;}
+      // Social cards from other claim pages describe other articles, so only the cue's own page may contribute one.
+      if (response.type.includes('text/html')) candidates.push(...pageImages(response.body.toString(),response.url,query).filter(c => url === urls[0] || !c.social));
+      if (/github\.com\/[^/]+\/[^/]+/.test(url)) {
+        const readme = await fetchPage(`https://raw.githubusercontent.com/${url.match(/github\.com\/([^/]+\/[^/?#]+)/)[1].replace(/\.git$/,'')}/HEAD/README.md`);
+        if (!readme.error) candidates.push(...readmeImages(readme.body.toString(), url, query));
       }
-    } catch (error) {report.push({query:cue.query,error:error.message});}
-    const purpose = ['identity','interface','mechanism','outcome'].includes(cue.visual_purpose) ? cue.visual_purpose : 'interface';
-    const purposeScore = candidate => {
-      const description = `${candidate.alt || ''} ${candidate.text || ''}`.toLowerCase();
-      if (purpose === 'identity') return (candidate.kind === 'logo' ? 12 : 0) + (candidate.social ? 4 : 0);
-      if (purpose === 'interface') return /screenshot|dashboard|interface|editor|terminal|console|ui/.test(description) ? 12 : (candidate.social ? -3 : 0);
-      if (purpose === 'mechanism') return /diagram|architecture|workflow|pipeline|flow|agent|sandbox/.test(description) ? 12 : (candidate.social ? -3 : 0);
-      return /result|output|benchmark|performance|comparison|chart/.test(description) ? 12 : (candidate.social ? -3 : 0);
-    };
-    let chosen;
-    for (const candidate of candidates.sort((a,b)=>(b.score+purposeScore(b))-(a.score+purposeScore(a))).filter(c=>!used.has(c.url)).slice(0,5)) {
-      const temp = path.join(directory,`${randomUUID()}.download`);
-      try {
-        const response = await getPublic(candidate.url);
-        if (!/^image\/(png|jpeg|webp|gif)/i.test(response.type)) continue;
-        await fs.writeFile(temp,response.body);
-        const {stdout} = await exec('ffprobe',['-v','error','-show_entries','stream=width,height','-of','json',temp],{timeout:10000});
-        const dimensions = JSON.parse(stdout).streams[0];
-        if (!dimensions || Math.min(dimensions.width,dimensions.height)<160 || dimensions.width*dimensions.height>24000000) continue;
-        const filename = createHash('sha256').update(response.body).digest('hex').slice(0,20)+'.png';
-        await exec('ffmpeg',['-v','error','-y','-i',temp,'-frames:v','1','-vf','scale=1200:1200:force_original_aspect_ratio=decrease',path.join(directory,filename)],{timeout:15000});
-        chosen = {imagePath:`/media/visuals/${run}/${filename}`,title:cue.query || cue.phrase,kind:cue.kind === 'logo'?'logo':candidate.kind,visualPurpose:purpose,startTurn:Number(cue.turn_index),phrase:cue.phrase,sourceUrl:candidate.sourceUrl,assetUrl:candidate.url,attribution:candidate.attribution || null};
-        used.add(candidate.url); break;
-      } catch (error) {report.push({url:candidate.url,error:error.message});}
-      finally {await fs.unlink(temp).catch(()=>{});}
     }
-    if (chosen) visuals.push(chosen);
-    report.push({cue,status:chosen?'downloaded':'no_image'});
+    // Site icons only depict identity. A rendered source page joins the pool as the "interface" fallback.
+    const tried = new Set(); const shotUrls = new Set();
+    const rank = () => candidates.filter(c => (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
+    const addShot = async pageUrl => {
+      if (!pageUrl || shotUrls.has(pageUrl)) return; shotUrls.add(pageUrl);
+      const shot = await fetchScreenshot(pageUrl);
+      if (shot.error) report.push({screenshot:pageUrl,error:shot.error.message}); else candidates.push(...shot);
+    };
+    // Download and validate the best-ranked unused candidates, then let the judge choose among what actually loaded.
+    const download = async (limit = 6) => {
+      const downloaded = [];
+      for (const candidate of rank()) {
+        if (downloaded.length >= limit) break;
+        tried.add(keyOf(candidate));
+        const temp = path.join(directory,`${randomUUID()}.download`);
+        try {
+          let body;
+          if (candidate.localPath) body = await fs.readFile(candidate.localPath);
+          else {
+            const response = await getPublic(candidate.url);
+            if (!/^image\/(png|jpeg|webp|gif)/i.test(response.type)) throw new Error(`NOT_IMAGE:${response.type}`);
+            body = response.body;
+          }
+          await fs.writeFile(temp,body);
+          const {stdout} = await exec('ffprobe',['-v','error','-show_entries','stream=width,height','-of','json',temp],{timeout:10000});
+          const dimensions = JSON.parse(stdout).streams[0];
+          const minimumDimension = candidate.kind === 'logo' ? 120 : 320;
+          if (!dimensions || Math.min(dimensions.width,dimensions.height)<minimumDimension || dimensions.width*dimensions.height>24000000) throw new Error('BAD_DIMENSIONS');
+          const thumb = `${temp}.jpg`;
+          await exec('ffmpeg',['-v','error','-y','-i',temp,'-frames:v','1','-vf','scale=768:768:force_original_aspect_ratio=decrease','-q:v','5',thumb],{timeout:15000});
+          downloaded.push({candidate, temp, thumb, body});
+        } catch (error) {report.push({url:candidate.url,error:error.message}); await fs.unlink(temp).catch(()=>{});}
+      }
+      return downloaded;
+    };
+    if (purpose !== 'identity') await addShot(urls[0]);
+    let downloaded = await download();
+    for (const pageUrl of urls) { if (downloaded.length) break; await addShot(pageUrl); downloaded = await download(); }
+    let chosen; let judgement = {index:null, reason:'nothing downloadable'};
+    if (downloaded.length) {
+      // A judge outage must never turn into a guessed picture: retry once, then leave the cue empty.
+      const context = {tool, topic, turnText:input.dialogue[Number(cue.turn_index)].text, phrase:cue.phrase, purpose, query};
+      try {judgement = await judgeVisuals(context, downloaded);}
+      catch (first) {
+        await sleep(3000);
+        try {judgement = await judgeVisuals(context, downloaded);}
+        catch (error) {report.push({judge:query,error:error.message}); judgement = {index:null, reason:`judge unavailable: ${error.message}`};}
+      }
+    }
+    const pick = judgement.index != null ? downloaded[judgement.index] : null;
+    if (pick) {
+      const filename = createHash('sha256').update(pick.body).digest('hex').slice(0,20)+'.png';
+      await exec('ffmpeg',['-v','error','-y','-i',pick.temp,'-frames:v','1','-vf','scale=1200:1200:force_original_aspect_ratio=decrease',path.join(directory,filename)],{timeout:15000});
+      used.add(keyOf(pick.candidate));
+      chosen = {imagePath:`/media/visuals/${run}/${filename}`,title:query,kind:cue.kind === 'logo'?'logo':pick.candidate.kind,visualPurpose:purpose,startTurn:Number(cue.turn_index),phrase:cue.phrase,sourceUrl:pick.candidate.sourceUrl,assetUrl:pick.candidate.assetId ?? pick.candidate.url,judgement:judgement.reason,attribution:pick.candidate.attribution || null};
+      visuals.push(chosen);
+    }
+    for (const item of downloaded) {await fs.unlink(item.temp).catch(()=>{}); await fs.unlink(item.thumb).catch(()=>{});}
+    report.push({cue,status:chosen?'downloaded':'no_image',considered:downloaded.map(item => item.candidate.assetId ?? item.candidate.url),judgement:judgement.reason});
   }
+  for (const shot of await Promise.all([...screenshots.values()])) if (!shot.error) for (const slice of shot) await fs.unlink(slice.localPath).catch(()=>{});
+  await closeFortress();
   await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify({visuals,report},null,2));
   return {...input,visuals,visualReport:report};
 }
