@@ -469,6 +469,11 @@ test('dialogue voice generation routes each turn to the matching configured voic
   assert.match(ttsNode.parameters.jsonBody, /\$json\.text/);
   assert.match(saveNode.parameters.fileName, /turn_index/);
   assert.match(saveNode.parameters.fileName, /speaker/);
+  // Live execution failed the whole run on a single slow response from the external TTS
+  // service (120s proxy timeout) — this call had no retry at all, unlike the Claude/qwen
+  // fallback paths elsewhere in the workflow.
+  assert.equal(ttsNode.retryOnFail, true);
+  assert.ok(ttsNode.maxTries >= 2);
 });
 
 test('Instagram caption prompt includes the tool context, dialogue, and JSON instruction', () => {
