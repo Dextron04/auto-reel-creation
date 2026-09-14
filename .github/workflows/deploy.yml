@@ -1,0 +1,59 @@
+name: Deploy Reel Automation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "renderer/**"
+      - "dashboard/**"
+      - "n8n/workflows/**"
+      - "scripts/**"
+      - "docker-compose.yml"
+      - "package.json"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: auto-reel-creation-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to mac-agent
+    runs-on:
+      - self-hosted
+      - macOS
+      - ARM64
+      - auto-reel-creation
+    timeout-minutes: 20
+
+    steps:
+      - name: Update production checkout
+        env:
+          DEPLOY_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+          cd "$HOME/auto-reel-creation"
+          git fetch --prune origin main
+          git checkout main
+          git merge --ff-only origin/main
+
+          if ! git merge-base --is-ancestor "$DEPLOY_COMMIT" HEAD; then
+            echo "Production checkout does not contain $DEPLOY_COMMIT" >&2
+            exit 1
+          fi
+
+      - name: Test, rebuild, and verify
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          cd "$HOME/auto-reel-creation"
+          ./scripts/deploy-server.sh
+
+      - name: Report deployed commit
+        run: |
+          cd "$HOME/auto-reel-creation"
+          echo "Deployed $(git rev-parse --short HEAD) to https://reels-dashboard.dextron04.in"
