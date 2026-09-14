@@ -319,7 +319,7 @@ export async function discoverVisuals(input) {
       if (shot.error) report.push({screenshot:pageUrl,error:shot.error.message}); else candidates.push(...shot);
     };
     // Download and validate the best-ranked unused candidates, then let the judge choose among what actually loaded.
-    const download = async (limit = 6) => {
+    const download = async (limit = 8) => {
       const downloaded = [];
       for (const candidate of rank()) {
         if (downloaded.length >= limit) break;
@@ -329,7 +329,7 @@ export async function discoverVisuals(input) {
           let body;
           if (candidate.localPath) body = await fs.readFile(candidate.localPath);
           else {
-            const response = await getPublic(candidate.url);
+            const response = await getPublicWithRetry(candidate.url);
             if (!/^image\/(png|jpeg|webp|gif)/i.test(response.type)) throw new Error(`NOT_IMAGE:${response.type}`);
             body = response.body;
           }
