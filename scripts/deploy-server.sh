@@ -49,4 +49,12 @@ if [ "$status" -ne 0 ]; then
   exit 1
 fi
 
+echo "Syncing n8n workflow definitions..."
+set -a
+. ./.env.prod
+set +a
+for workflow in n8n/workflows/*.json; do
+  node scripts/sync-n8n-workflow.mjs "$workflow"
+done
+
 echo "auto-reel-creation deployment is healthy."
