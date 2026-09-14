@@ -14,6 +14,9 @@ fi
 echo "Running renderer regression suite..."
 npm --prefix renderer test
 
+echo "Running dashboard regression suite..."
+npm --prefix dashboard test
+
 echo "Running n8n workflow regression suite..."
 node --test n8n/workflows/research-workflow.test.mjs
 

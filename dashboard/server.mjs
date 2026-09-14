@@ -2,7 +2,13 @@ import express from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {formatScheduledRun, mapExecution, nextCronOccurrence} from './operations.mjs';
+import {
+  executionListPath,
+  formatScheduledRun,
+  mapExecution,
+  mergeExecutionDetails,
+  nextCronOccurrence,
+} from './operations.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
@@ -216,10 +222,20 @@ app.get('/api/executions', async (req, res) => {
   try {
     const id = await findWorkflowId();
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
-    const params = new URLSearchParams({workflowId: id, limit: '50', includeData: 'true'});
-    if (cursor) params.set('cursor', cursor);
-    const list = await n8nFetch(`/api/v1/executions?${params}`);
-    const executions = (list.data ?? []).map(mapExecution);
+    const list = await n8nFetch(executionListPath(id, cursor));
+    const summaries = (list.data ?? []).map(mapExecution);
+    const runningDetails = await Promise.all(
+      summaries
+        .filter(execution => execution.status === 'running')
+        .map(async execution => {
+          try {
+            return mapExecution(await n8nFetch(`/api/v1/executions/${encodeURIComponent(execution.id)}?includeData=true`));
+          } catch {
+            return execution;
+          }
+        }),
+    );
+    const executions = mergeExecutionDetails(summaries, runningDetails);
     res.json({
       configured: true,
       executions,

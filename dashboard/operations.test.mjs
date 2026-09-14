@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {formatScheduledRun, mapExecution, nextCronOccurrence} from './operations.mjs';
+import {
+  executionListPath,
+  formatScheduledRun,
+  mapExecution,
+  mergeExecutionDetails,
+  nextCronOccurrence,
+} from './operations.mjs';
 
 test('nextCronOccurrence finds the next twice-daily run in the configured timezone', () => {
   const next = nextCronOccurrence(
@@ -30,6 +36,28 @@ test('formatScheduledRun labels a summer Chicago time as CDT', () => {
   );
 
   assert.equal(label, 'Mon, 5:00 PM CDT');
+});
+
+test('executionListPath requests lightweight paginated summaries', () => {
+  assert.equal(
+    executionListPath('workflow 1', 'page 2'),
+    '/api/v1/executions?workflowId=workflow+1&limit=50&cursor=page+2',
+  );
+});
+
+test('mergeExecutionDetails enriches only matching execution summaries', () => {
+  const merged = mergeExecutionDetails(
+    [
+      {id: '10', status: 'running', currentNodes: []},
+      {id: '9', status: 'success', currentNodes: []},
+    ],
+    [{id: '10', status: 'running', currentNodes: ['Render reel']}],
+  );
+
+  assert.deepEqual(merged, [
+    {id: '10', status: 'running', currentNodes: ['Render reel']},
+    {id: '9', status: 'success', currentNodes: []},
+  ]);
 });
 
 test('mapExecution exposes every node currently on the execution stack', () => {

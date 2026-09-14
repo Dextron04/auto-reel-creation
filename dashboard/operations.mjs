@@ -102,6 +102,17 @@ export function formatScheduledRun(date, timeZone = 'UTC') {
   }).format(date);
 }
 
+export function executionListPath(workflowId, cursor = null) {
+  const params = new URLSearchParams({workflowId, limit: '50'});
+  if (cursor) params.set('cursor', cursor);
+  return `/api/v1/executions?${params}`;
+}
+
+export function mergeExecutionDetails(summaries, details) {
+  const detailsById = new Map(details.map(execution => [execution.id, execution]));
+  return summaries.map(execution => detailsById.get(execution.id) ?? execution);
+}
+
 export function mapExecution(execution) {
   const resultData = execution.data?.resultData ?? {};
   const stack = execution.data?.executionData?.nodeExecutionStack ?? [];
@@ -115,7 +126,7 @@ export function mapExecution(execution) {
     mode: execution.mode,
     startedAt: execution.startedAt,
     stoppedAt: execution.stoppedAt,
-    error: execution.status === 'error' ? (resultData.error?.message ?? 'Unknown error') : null,
+    error: execution.status === 'error' && resultData.error ? (resultData.error.message ?? 'Unknown error') : null,
     lastNode: resultData.lastNodeExecuted ?? null,
     currentNodes,
   };
