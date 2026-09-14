@@ -9,8 +9,6 @@ import {createHash, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
-import {Fortress} from 'tilion-fortress';
-import {chromium} from 'playwright-core';
 import {MEDIA_ROOT} from './validation.mjs';
 
 const exec = promisify(execFile);
@@ -176,25 +174,15 @@ export function parseBraveResults(json, query) {
   return parseSearchResults({results: results.map(r => ({image:r.properties?.url, url:r.url, title:r.title, width:r.properties?.width ?? 1000, height:r.properties?.height ?? 800}))}, query);
 }
 
-// Fortress (stealth Chromium, github.com/tiliondev/fortress) drives the real DDG images UI so the request
-// looks like a browser, not a bot — no vqd token dance, no raw-HTTP rate limiting. Lazily launched, reused
-// across searches in this process, torn down by closeFortress() when discovery finishes.
-let fortressState = null;
-async function fortressBrowser() {
-  if (!fortressState) fortressState = (async () => {
-    // No native mac/win binary published yet, so this falls back to Docker, whose default shm quota is
-    // too small for DDG's JS bundle and throws net::ERR_INSUFFICIENT_RESOURCES without this flag.
-    const f = await Fortress.launch({extraArgs:['--disable-dev-shm-usage']});
-    return {f, browser: await chromium.connectOverCDP(f.cdpUrl)};
-  })();
-  try {return await fortressState;}
-  catch (error) {fortressState = null; throw error;}
-}
-export async function closeFortress() {
-  if (!fortressState) return;
-  const state = await fortressState.catch(() => null);
-  fortressState = null;
-  if (state) {await state.browser.close().catch(() => {}); await state.f.close().catch(() => {});}
+// Plain keyless DDG image search: no browser, no Fortress. DDG's i.js JSON endpoint needs a `vqd`
+// session token first, normally computed by DDG's own client-side JS on the search page; we scrape it
+// out of the page's HTML instead of running a real browser to get it. Rate-limits under bursts, in
+// which case the caller (discoverVisuals) just skips that cue rather than substituting a wrong image.
+async function fetchDdgVqd(query) {
+  const {body} = await getPublic(`https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`, 0, {'User-Agent':'Mozilla/5.0'});
+  const match = body.toString().match(/vqd=['"]?([\d-]+)['"]?/);
+  if (!match) throw new Error('DDG_VQD_NOT_FOUND');
+  return match[1];
 }
 export async function searchImages(query) {
   const q = encodeURIComponent(query);
@@ -203,21 +191,9 @@ export async function searchImages(query) {
     const result = await getPublic(`https://api.search.brave.com/res/v1/images/search?q=${q}&count=8&safesearch=strict`, 0, {Accept:'application/json', 'X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY});
     return parseBraveResults(JSON.parse(result.body.toString()), query);
   }
-  const {browser} = await fortressBrowser();
-  let page;
-  try {
-    page = await browser.newPage();
-    const [response] = await Promise.all([
-      page.waitForResponse(res => res.url().includes('duckduckgo.com/i.js'), {timeout:15000}),
-      page.goto(`https://duckduckgo.com/?q=${q}&iax=images&ia=images`, {waitUntil:'domcontentloaded', timeout:15000}),
-    ]);
-    return parseSearchResults(await response.json(), query);
-  } catch (error) {
-    await closeFortress(); // session may be dead; force a relaunch on the next search
-    throw error;
-  } finally {
-    if (page) await page.close().catch(() => {});
-  }
+  const vqd = await fetchDdgVqd(query);
+  const result = await getPublic(`https://duckduckgo.com/i.js?l=us-en&o=json&q=${q}&vqd=${vqd}&f=,,,&p=1`, 0, {Accept:'application/json', Referer:'https://duckduckgo.com/'});
+  return parseSearchResults(JSON.parse(result.body.toString()), query);
 }
 
 // Keyless, ToS-friendly source: the top GitHub repos for the tool, whose READMEs carry the real screenshots and diagrams.
@@ -355,7 +331,6 @@ export async function discoverVisuals(input) {
     report.push({cue,status:chosen?'downloaded':'no_image',considered:downloaded.map(item => item.candidate.assetId ?? item.candidate.url),judgement:judgement.reason});
   }
   for (const shot of await Promise.all([...screenshots.values()])) if (!shot.error) for (const slice of shot) await fs.unlink(slice.localPath).catch(()=>{});
-  await closeFortress();
   let validation; let validationError;
   try { validation = validateVisualSelection(visuals); }
   catch (error) { validationError = error; report.push({status:'visual_preflight_failed',error:error.message}); }

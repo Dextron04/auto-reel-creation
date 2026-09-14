@@ -16,10 +16,6 @@ services:
       - ./output:/output
   renderer:
     build: ./renderer
-    # x64: fortress (image search) has no native linux-arm64 binary yet, and its Docker fallback spawns a
-    # sibling container that's unreachable from inside renderer's own network namespace. Emulated under
-    # QEMU on Apple Silicon, so ffmpeg/chromium/remotion render slower than a native arm64 image would.
-    platform: linux/amd64
     env_file:
       - .env.prod
     ports: ["127.0.0.1:3001:3001"]
