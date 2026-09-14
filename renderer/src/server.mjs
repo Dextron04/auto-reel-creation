@@ -2,6 +2,7 @@ import express from 'express';
 import {renderReel} from './render.mjs';
 import {discoverVisuals} from './asset-discovery.mjs';
 import {publishToInstagram} from './publish-instagram.mjs';
+import {readTopicHistory, recordTopic} from './topic-history.mjs';
 
 const app = express();
 app.use(express.json({limit: '256kb'}));
@@ -18,6 +19,14 @@ app.post('/v1/render', async (req, res) => {
 });
 app.post('/v1/publish/instagram', async (req, res) => {
   try { res.json(await publishToInstagram(req.body)); }
+  catch (error) { res.status(400).json({error: error.message}); }
+});
+app.get('/v1/topic-history', async (_req, res) => {
+  try { res.json({recent: await readTopicHistory()}); }
+  catch (error) { res.status(400).json({error: error.message}); }
+});
+app.post('/v1/topic-history', async (req, res) => {
+  try { res.json({recent: await recordTopic(req.body)}); }
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.listen(process.env.PORT ?? 3001, '0.0.0.0', () => console.log('renderer listening on 3001'));

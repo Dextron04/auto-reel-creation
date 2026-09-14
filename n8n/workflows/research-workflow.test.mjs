@@ -19,6 +19,7 @@ test('research workflow includes broad developer-tool discovery sources', () => 
     'rss-aws-ml',
     'rss-vercel',
     'rss-jetbrains-idea',
+    'rss-hackernews',
   ];
 
   for (const sourceId of sourceIds) assert.ok(nodeById.has(sourceId), `missing ${sourceId}`);
@@ -36,6 +37,10 @@ test('trend scoring runs before the research prompt', () => {
   );
   assert.equal(
     workflow.connections['Score Developer Tool Trends'].main[0][0].node,
+    'Fetch Recent Topics',
+  );
+  assert.equal(
+    workflow.connections['Fetch Recent Topics'].main[0][0].node,
     'Build Research Prompt',
   );
 });
@@ -126,6 +131,25 @@ test('research prompt requests actionable developer and SEO output', () => {
   }
 });
 
+test('research prompt asks for category breadth and avoids recently covered topics', () => {
+  const promptCode = nodeById.get('af5f69ff-5d43-439d-80bf-b74085e60214').parameters.jsCode;
+  const scored = Array.from({length: 6}, (_, i) => ({json: {
+    source_url: `https://example.com/${i}`, publisher: 'example.com', trend_score: 90 - i, title: `Item ${i}`,
+  }}));
+  const items = (name) => name === 'Score Developer Tool Trends' ? scored : [];
+  const fn = new Function('$items', '$json', promptCode);
+
+  const withHistory = fn(items, {recent: [{tool_name: 'AI SDK Harness Layer', category: 'Agent Harness'}]});
+  assert.match(withHistory[0].json.prompt, /already covered: AI SDK Harness Layer \(Agent Harness\)/);
+  assert.match(withHistory[0].json.prompt, /databases, security vulnerabilities/);
+
+  const withoutHistory = fn(items, {recent: []});
+  assert.doesNotMatch(withoutHistory[0].json.prompt, /already covered/);
+
+  const missingHistoryResponse = fn(items, undefined);
+  assert.equal(missingHistoryResponse.length, 1, 'a failed topic-history fetch must not break research');
+});
+
 test('SEO brief is finalized before dialogue generation', () => {
   const seoNode = nodeById.get('finalize-seo-brief');
   assert.ok(seoNode, 'missing SEO brief finalizer');
@@ -137,8 +161,36 @@ test('SEO brief is finalized before dialogue generation', () => {
   );
   assert.equal(
     workflow.connections['Finalize SEO Brief'].main[0][0].node,
+    'Record Topic to History',
+  );
+  assert.equal(
+    workflow.connections['Record Topic to History'].main[0][0].node,
     'Build Peter and Stewie Dialogue Prompt',
   );
+});
+
+test('a topic is recorded to history before the dialogue prompt is built, without blocking on failure', () => {
+  const recordNode = nodeById.get('record-topic-history');
+  assert.ok(recordNode, 'missing record-topic-history node');
+  assert.equal(recordNode.parameters.options.neverError, true, 'a history-write failure must not fail the run');
+  assert.match(recordNode.parameters.jsonBody, /tool_name/);
+  assert.match(recordNode.parameters.jsonBody, /recommended_topic/);
+});
+
+test('recent topics are fetched before the research prompt is built, without blocking on failure', () => {
+  const fetchNode = nodeById.get('fetch-recent-topics');
+  assert.ok(fetchNode, 'missing fetch-recent-topics node');
+  assert.equal(fetchNode.parameters.options.neverError, true, 'a history-read failure must not fail the run');
+  assert.equal(workflow.connections['Score Developer Tool Trends'].main[0][0].node, 'Fetch Recent Topics');
+  assert.equal(workflow.connections['Fetch Recent Topics'].main[0][0].node, 'Build Research Prompt');
+});
+
+test('research workflow includes a general software engineering source alongside AI vendor feeds', () => {
+  const hn = nodeById.get('rss-hackernews');
+  assert.ok(hn, 'missing Hacker News source');
+  assert.equal(hn.parameters.url, 'https://hnrss.org/frontpage');
+  const merge = nodeById.get('merge-research-feeds');
+  assert.equal(merge.parameters.numberInputs, 11, 'merge must accept all 11 feeds');
 });
 
 test('trend scoring keeps developer tools and ranks stronger signals first', () => {
@@ -178,12 +230,15 @@ test('publisher parsing works in the restricted n8n Code sandbox', () => {
 
 test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   const promptNode = nodeById.get('script-prompt');
-  const result = new Function('$json', promptNode.parameters.jsCode)({
+  const seoBriefItem = {json: {
     research: {recommended_topic: {tool_name: 'Agent Kit', claims: [{statement: 'It runs tools.'}]}},
     seo_brief: {primary_keyword: 'agent kit for developers'},
-  });
+  }};
+  const items = (name) => name === 'Finalize SEO Brief' ? [seoBriefItem] : [];
+  const result = new Function('$items', '$json', promptNode.parameters.jsCode)(items, {});
 
   assert.equal(result.length, 1);
+  assert.equal(result[0].json.seo_brief.primary_keyword, 'agent kit for developers');
   assert.match(result[0].json.prompt, /exactly six/i);
   assert.match(result[0].json.prompt, /"turns"/);
   assert.match(result[0].json.prompt, /Peter introduces/i);

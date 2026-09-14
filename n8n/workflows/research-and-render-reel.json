@@ -24,7 +24,26 @@
     },
     {
       "parameters": {
-        "jsCode": "const rankedItems = $input.all().map((item) => item.json).filter((item) => item.source_url);\nconst publisherCounts = new Map();\nconst sourceItems = [];\nfor (const item of rankedItems.sort((a, b) => b.trend_score - a.trend_score)) {\n  const count = publisherCounts.get(item.publisher) ?? 0;\n  if (count >= 6) continue;\n  publisherCounts.set(item.publisher, count + 1);\n  sourceItems.push(item);\n  if (sourceItems.length >= 45) break;\n}\nif (sourceItems.length < 5) throw new Error('RESEARCH_INSUFFICIENT_TOOL_SIGNALS');\nconst prompt = `You are an evidence-first researcher and SEO strategist for short videos aimed at software developers. Analyze only the RANKED SOURCE MATERIAL below. Never invent product capabilities, adoption numbers, pricing, release dates, or market claims.\n\nFind new AI tools and developer infrastructure that materially make developers faster or safer. Prioritize coding agents, AI IDEs, agent harnesses, MCP and tool-calling systems, automation platforms, local AI, testing and evals, observability and tracing, deployment tools, open-source frameworks, SDKs, and APIs. Explain the concrete developer workflow improved: what painful step changes, who benefits, and how a developer would use the tool.\n\nUse trend_score as a discovery signal, not proof. Prefer recent releases, evidence from authoritative sources, repeated mentions across independent publishers, specific capabilities, and topics with clear search intent. Reject generic AI news, consumer-only apps, vague thought leadership, unsupported hype, token-price speculation, and tools without a concrete developer use case.\n\nChoose exactly 5 candidates and one recommendation suitable for a factual, fast-paced 30–60 second vertical reel. Each candidate must have at least one source URL; the recommendation should use two independent sources when available. Every factual claim must cite an exact source_url from the material.\n\nCreate an SEO brief around how developers would search for the tool. Use natural keywords, not keyword stuffing. Titles should promise a concrete benefit without fake urgency. Hashtags must be relevant and limited to 5-8.\n\nReturn ONLY valid JSON matching this schema:\n{\"recommended_topic\":{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"one_line_value\":\"\",\"developer_workflow\":\"\",\"who_it_helps\":\"\",\"why_now\":\"\",\"hook\":\"\",\"why_it_matters\":\"\",\"visual_angle\":\"\",\"trend_score\":0,\"claims\":[{\"claim_id\":\"c1\",\"statement\":\"\",\"source_url\":\"\",\"publisher\":\"\",\"published_at\":\"\",\"retrieved_at\":\"${new Date().toISOString()}\",\"confidence\":0.0,\"verification_notes\":\"\"}],\"seo_brief\":{\"primary_keyword\":\"\",\"related_keywords\":[\"\"],\"search_intent\":\"informational|commercial|tutorial\",\"title_options\":[\"\",\"\",\"\"],\"description\":\"\",\"hashtags\":[\"\"]}},\"candidates\":[{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"developer_workflow\":\"\",\"why_now\":\"\",\"trend_score\":0,\"source_urls\":[\"\"]}],\"research_policy\":{\"requires_human_review\":true,\"content_disclosure\":\"AI-assisted research and narration; edited visuals.\"}}\n\nRANKED SOURCE MATERIAL:\n${JSON.stringify(sourceItems)}`;\nreturn [{ json: { prompt, source_count: sourceItems.length, sources: sourceItems, scoring_version: 'developer-tools-v1' } }];"
+        "method": "GET",
+        "url": "http://renderer:3001/v1/topic-history",
+        "options": {
+          "response": {"response": {"responseFormat": "json"}},
+          "timeout": 15000,
+          "neverError": true
+        }
+      },
+      "id": "fetch-recent-topics",
+      "name": "Fetch Recent Topics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        -200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rankedItems = $items('Score Developer Tool Trends').map((item) => item.json).filter((item) => item.source_url);\nconst recentTopics = ($json?.recent || []).map((t) => `${t.tool_name} (${t.category})`);\nconst publisherCounts = new Map();\nconst sourceItems = [];\nfor (const item of rankedItems.sort((a, b) => b.trend_score - a.trend_score)) {\n  const count = publisherCounts.get(item.publisher) ?? 0;\n  if (count >= 6) continue;\n  publisherCounts.set(item.publisher, count + 1);\n  sourceItems.push(item);\n  if (sourceItems.length >= 45) break;\n}\nif (sourceItems.length < 5) throw new Error('RESEARCH_INSUFFICIENT_TOOL_SIGNALS');\nconst prompt = `You are an evidence-first researcher and SEO strategist for short videos aimed at software developers. Analyze only the RANKED SOURCE MATERIAL below. Never invent product capabilities, adoption numbers, pricing, release dates, or market claims.\n\nFind new developments across the whole world of software engineering and AI that materially make developers faster or safer -- not only AI coding agents and agent harnesses. Actively vary the category run to run: coding agents, AI IDEs, agent harnesses, MCP and tool-calling systems, automation platforms, local AI, testing and evals, observability and tracing, deployment tools, open-source frameworks, SDKs, APIs, programming languages, databases, security vulnerabilities and fixes, performance engineering, and general software engineering news are all in scope equally. Explain the concrete developer workflow improved: what painful step changes, who benefits, and how a developer would use the tool.\n\nUse trend_score as a discovery signal, not proof. Prefer recent releases, evidence from authoritative sources, repeated mentions across independent publishers, specific capabilities, and topics with clear search intent. Reject generic AI news, consumer-only apps, vague thought leadership, unsupported hype, token-price speculation, and tools without a concrete developer use case.\n\n${recentTopics.length ? `The last several videos already covered: ${recentTopics.join('; ')}. Do not recommend any of these again and avoid picking another topic in the same narrow category (e.g. if recent topics were agent harnesses, actively prefer a different category this time) unless a genuinely new, materially different development has emerged since.` : ''}\n\nChoose exactly 5 candidates and one recommendation suitable for a factual, fast-paced 30–60 second vertical reel. Each candidate must have at least one source URL; the recommendation should use two independent sources when available. Every factual claim must cite an exact source_url from the material.\n\nCreate an SEO brief around how developers would search for the tool. Use natural keywords, not keyword stuffing. Titles should promise a concrete benefit without fake urgency. Hashtags must be relevant and limited to 5-8.\n\nReturn ONLY valid JSON matching this schema:\n{\"recommended_topic\":{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"one_line_value\":\"\",\"developer_workflow\":\"\",\"who_it_helps\":\"\",\"why_now\":\"\",\"hook\":\"\",\"why_it_matters\":\"\",\"visual_angle\":\"\",\"trend_score\":0,\"claims\":[{\"claim_id\":\"c1\",\"statement\":\"\",\"source_url\":\"\",\"publisher\":\"\",\"published_at\":\"\",\"retrieved_at\":\"${new Date().toISOString()}\",\"confidence\":0.0,\"verification_notes\":\"\"}],\"seo_brief\":{\"primary_keyword\":\"\",\"related_keywords\":[\"\"],\"search_intent\":\"informational|commercial|tutorial\",\"title_options\":[\"\",\"\",\"\"],\"description\":\"\",\"hashtags\":[\"\"]}},\"candidates\":[{\"topic\":\"\",\"tool_name\":\"\",\"category\":\"\",\"developer_workflow\":\"\",\"why_now\":\"\",\"trend_score\":0,\"source_urls\":[\"\"]}],\"research_policy\":{\"requires_human_review\":true,\"content_disclosure\":\"AI-assisted research and narration; edited visuals.\"}}\n\nRANKED SOURCE MATERIAL:\n${JSON.stringify(sourceItems)}`;\nreturn [{ json: { prompt, source_count: sourceItems.length, sources: sourceItems, scoring_version: 'developer-tools-v1' } }];"
       },
       "id": "af5f69ff-5d43-439d-80bf-b74085e60214",
       "name": "Build Research Prompt",
@@ -167,8 +186,21 @@
     },
     {
       "parameters": {
+        "url": "https://hnrss.org/frontpage"
+      },
+      "id": "rss-hackernews",
+      "name": "Fetch Hacker News Front Page",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        1800
+      ]
+    },
+    {
+      "parameters": {
         "mode": "append",
-        "numberInputs": 10
+        "numberInputs": 11
       },
       "id": "merge-research-feeds",
       "name": "Merge Research Sources",
@@ -442,7 +474,29 @@
     },
     {
       "parameters": {
-        "jsCode": "const research = $json.research;\nif (!research?.recommended_topic) throw new Error('SCRIPT_MISSING_RESEARCH');\nconst topic = research.recommended_topic;\nconst prompt = `Write a clean, evidence-based dialogue for a 30–60 second vertical video about the recommended AI developer tool below. Return exactly six short alternating turns, beginning with Peter.\n\nDialogue structure:\n1. Peter introduces the tool and the developer pain it addresses.\n2. Stewie asks why it is needed.\n3. Peter explains the concrete workflow or capability.\n4. Stewie questions how it can be used or whether it is genuinely useful.\n5. Peter answers with a specific evidence-backed benefit.\n6. Stewie gives a concise, slightly skeptical but positive closing takeaway.\n\nFocus on one primary tool and one coherent use case. Do not combine unrelated products, models, or claims in the same dialogue. Every turn must be one sentence: complete, conversational, and written with simple grammar and a clear subject. Keep the dialogue natural and conversational with no filler or padding — there is no strict upper word limit, so prioritize covering the tool well over hitting a target length. Peter is plain-spoken and mildly funny; Stewie is precise, skeptical, and witty. Keep every line clean, natural, and easy to say aloud. Name the tool early, use the primary SEO keyword naturally at most once, and never include stage directions, headings, URLs, profanity, keyword stuffing, sentence fragments, or unsupported hype. Use only facts from the research package.\n\nAfter writing the dialogue, plan 6–8 relevant internet image cues, with at least one cue for every one of the six turns so a matching picture is on screen for the whole reel. Each cue must name an exact phrase spoken in its zero-based turn_index, a focused image-search query, kind logo or screenshot, a visual_purpose of identity, interface, mechanism, or outcome, and a source_url to the relevant product, documentation, article or repository page. Use provided research URLs where possible, preferring the tool's official product page, documentation page, or GitHub repository over news articles because the collector screenshots that page and extracts its images. Never invent direct image URLs. Include different useful views: product identity, the actual UI/workflow, a feature or diagram, and a concrete outcome. Match the visual to the spoken claim. No generic title cards.\n\nReturn ONLY JSON: {\"title\":\"\",\"focus\":\"\",\"source_start_seconds\":0,\"turns\":[{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"}],\"visuals\":[{\"turn_index\":0,\"phrase\":\"exact spoken phrase\",\"query\":\"tool name screenshot\",\"kind\":\"screenshot\",\"visual_purpose\":\"interface\",\"source_url\":\"https://official-source-page\"}]}\nRECOMMENDED RESEARCH:\n${JSON.stringify(topic)}`;\nreturn [{ json: { prompt, research, seo_brief: $json.seo_brief, source_start_seconds: 0 } }];"
+        "method": "POST",
+        "url": "http://renderer:3001/v1/topic-history",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { tool_name: $json.research.recommended_topic.tool_name, category: $json.research.recommended_topic.category, topic: $json.research.recommended_topic.topic } }}",
+        "options": {
+          "response": {"response": {"responseFormat": "json"}},
+          "timeout": 15000,
+          "neverError": true
+        }
+      },
+      "id": "record-topic-history",
+      "name": "Record Topic to History",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const research = $items('Finalize SEO Brief')[0]?.json?.research;\nif (!research?.recommended_topic) throw new Error('SCRIPT_MISSING_RESEARCH');\nconst topic = research.recommended_topic;\nconst prompt = `Write a clean, evidence-based dialogue for a 30–60 second vertical video about the recommended AI developer tool below. Return exactly six short alternating turns, beginning with Peter.\n\nDialogue structure:\n1. Peter introduces the tool and the developer pain it addresses.\n2. Stewie asks why it is needed.\n3. Peter explains the concrete workflow or capability.\n4. Stewie questions how it can be used or whether it is genuinely useful.\n5. Peter answers with a specific evidence-backed benefit.\n6. Stewie gives a concise, slightly skeptical but positive closing takeaway.\n\nFocus on one primary tool and one coherent use case. Do not combine unrelated products, models, or claims in the same dialogue. Every turn must be one sentence: complete, conversational, and written with simple grammar and a clear subject. Keep the dialogue natural and conversational with no filler or padding — there is no strict upper word limit, so prioritize covering the tool well over hitting a target length. Peter is plain-spoken and mildly funny; Stewie is precise, skeptical, and witty. Keep every line clean, natural, and easy to say aloud. Name the tool early, use the primary SEO keyword naturally at most once, and never include stage directions, headings, URLs, profanity, keyword stuffing, sentence fragments, or unsupported hype. Use only facts from the research package.\n\nAfter writing the dialogue, plan 6–8 relevant internet image cues, with at least one cue for every one of the six turns so a matching picture is on screen for the whole reel. Each cue must name an exact phrase spoken in its zero-based turn_index, a focused image-search query, kind logo or screenshot, a visual_purpose of identity, interface, mechanism, or outcome, and a source_url to the relevant product, documentation, article or repository page. Use provided research URLs where possible, preferring the tool's official product page, documentation page, or GitHub repository over news articles because the collector screenshots that page and extracts its images. Never invent direct image URLs. Include different useful views: product identity, the actual UI/workflow, a feature or diagram, and a concrete outcome. Match the visual to the spoken claim. No generic title cards.\n\nReturn ONLY JSON: {\"title\":\"\",\"focus\":\"\",\"source_start_seconds\":0,\"turns\":[{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"},{\"speaker\":\"peter\",\"text\":\"\"},{\"speaker\":\"stewie\",\"text\":\"\"}],\"visuals\":[{\"turn_index\":0,\"phrase\":\"exact spoken phrase\",\"query\":\"tool name screenshot\",\"kind\":\"screenshot\",\"visual_purpose\":\"interface\",\"source_url\":\"https://official-source-page\"}]}\nRECOMMENDED RESEARCH:\n${JSON.stringify(topic)}`;\nreturn [{ json: { prompt, research, seo_brief: $items('Finalize SEO Brief')[0]?.json?.seo_brief, source_start_seconds: 0 } }];"
       },
       "id": "script-prompt",
       "name": "Build Peter and Stewie Dialogue Prompt",
@@ -757,6 +811,11 @@
             "node": "Fetch JetBrains IDE Updates",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Fetch Hacker News Front Page",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -871,6 +930,17 @@
         ]
       ]
     },
+    "Fetch Hacker News Front Page": {
+      "main": [
+        [
+          {
+            "node": "Merge Research Sources",
+            "type": "main",
+            "index": 10
+          }
+        ]
+      ]
+    },
     "Merge Research Sources": {
       "main": [
         [
@@ -883,6 +953,17 @@
       ]
     },
     "Score Developer Tool Trends": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent Topics": {
       "main": [
         [
           {
@@ -967,6 +1048,17 @@
       ]
     },
     "Finalize SEO Brief": {
+      "main": [
+        [
+          {
+            "node": "Record Topic to History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Topic to History": {
       "main": [
         [
           {
