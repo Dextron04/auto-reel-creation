@@ -305,7 +305,9 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.match(result[0].json.prompt, /"turns"/);
   assert.match(result[0].json.prompt, /Peter introduces/i);
   assert.match(result[0].json.prompt, /Stewie/i);
-  assert.match(result[0].json.prompt, /no strict upper word limit/);
+  assert.match(result[0].json.prompt, /8–12 distinct visual cues/);
+  assert.match(result[0].json.prompt, /Claude Vision will reject irrelevant candidates/);
+  assert.match(result[0].json.prompt, /government documents/);
   assert.match(result[0].json.prompt, /one primary tool/i);
   assert.match(result[0].json.prompt, /one sentence/i);
   assert.match(result[0].json.prompt, /do not combine unrelated products/i);

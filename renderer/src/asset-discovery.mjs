@@ -148,6 +148,14 @@ export function isUsableVisualCue(cue, dialogue) {
 
 const PURPOSES = ['identity','interface','mechanism','outcome'];
 export const keyOf = candidate => candidate.assetId ?? assetKey(candidate.url);
+export function validateVisualSelection(visuals, {minimumImages = 8, requiredTurns = 6} = {}) {
+  const distinctImages = new Set((visuals || []).map(visual => assetKey(visual.assetUrl || visual.imagePath))).size;
+  if (distinctImages < minimumImages) throw new Error(`VISUAL_PREFLIGHT_FAILED:${distinctImages}_DISTINCT_IMAGES`);
+  const coveredTurns = new Set((visuals || []).map(visual => Number(visual.startTurn)).filter(Number.isInteger));
+  if (coveredTurns.size < requiredTurns) throw new Error(`VISUAL_PREFLIGHT_FAILED:${coveredTurns.size}_TURNS_COVERED`);
+  if ((visuals || []).some(visual => !String(visual.judgement || '').trim())) throw new Error('VISUAL_PREFLIGHT_FAILED:UNJUDGED_IMAGE');
+  return {distinctImages, coveredTurns: coveredTurns.size};
+}
 export function purposeScore(candidate, purpose) {
   const description = `${candidate.alt || ''} ${candidate.text || ''}`.toLowerCase();
   if (purpose === 'identity') return (candidate.kind === 'logo' ? 12 : 0) + (candidate.social ? 4 : 0);
@@ -240,7 +248,8 @@ export function judgePrompt({tool, topic, turnText, phrase, purpose, query}) {
   return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}. If none clearly fit, answer 0.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>"}`;
 }
 async function judgeVisuals(context, downloaded) {
-  if (!anthropic || !downloaded.length) return {index: downloaded.length ? 0 : null, reason: 'no judge configured'};
+  if (!anthropic) return {index:null, reason:'vision judge unavailable'};
+  if (!downloaded.length) return {index:null, reason:'nothing downloadable'};
   const content = [];
   for (const [index, item] of downloaded.entries()) {
     content.push({type:'text', text:`Image ${index + 1}: ${item.candidate.title || item.candidate.alt || item.candidate.kind} (from ${new URL(item.candidate.sourceUrl || item.candidate.url).hostname})`});
@@ -256,7 +265,7 @@ export async function discoverVisuals(input) {
   await fs.mkdir(directory,{recursive:true});
   const visuals = []; const report = []; const used = new Set(); const pages = new Map(); const screenshots = new Map();
   const sources = (input.research?.recommended_topic?.claims || []).map(c=>c.source_url).filter(Boolean);
-  const cues = (input.visualCues || []).slice(0,8);
+  const cues = (input.visualCues || []).slice(0,12);
   const fetchPage = async url => {
     if (!pages.has(url)) pages.set(url, getPublic(url).catch(error => ({error})));
     return pages.get(url);
@@ -347,6 +356,10 @@ export async function discoverVisuals(input) {
   }
   for (const shot of await Promise.all([...screenshots.values()])) if (!shot.error) for (const slice of shot) await fs.unlink(slice.localPath).catch(()=>{});
   await closeFortress();
-  await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify({visuals,report},null,2));
-  return {...input,visuals,visualReport:report};
+  let validation; let validationError;
+  try { validation = validateVisualSelection(visuals); }
+  catch (error) { validationError = error; report.push({status:'visual_preflight_failed',error:error.message}); }
+  await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify({visuals,report,validation:validation ?? null},null,2));
+  if (validationError) throw validationError;
+  return {...input,visuals,visualReport:report,visualValidation:validation};
 }
