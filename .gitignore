@@ -11,3 +11,5 @@ media/*
 !media/.gitkeep
 output/*
 !output/.gitkeep
+.claude-flow/
+graphify-out/

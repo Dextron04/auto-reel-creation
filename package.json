@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "npm --prefix renderer run dev",
     "render": "npm --prefix renderer run render",
-    "test": "npm --prefix renderer test"
+    "test": "npm --prefix renderer test",
+    "dashboard": "npm --prefix dashboard start"
   }
 }

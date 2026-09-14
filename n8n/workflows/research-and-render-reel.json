@@ -8,7 +8,7 @@
           "interval": [
             {
               "field": "cronExpression",
-              "expression": "0 9,17 * * *"
+              "expression": "0 */6 * * *"
             }
           ]
         }
@@ -27,7 +27,11 @@
         "method": "GET",
         "url": "http://renderer:3001/v1/topic-history",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 15000,
           "neverError": true
         }
@@ -467,7 +471,11 @@
         "specifyBody": "json",
         "jsonBody": "={{ { ...$json, research: $json.research } }}",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 15000
         }
       },
@@ -501,7 +509,11 @@
         "specifyBody": "json",
         "jsonBody": "={{ { tool_name: $items('Build Dialogue Audio and Subtitle Render Job')[0].json.research.recommended_topic.tool_name, category: $items('Build Dialogue Audio and Subtitle Render Job')[0].json.research.recommended_topic.category, topic: $items('Build Dialogue Audio and Subtitle Render Job')[0].json.research.recommended_topic.topic, render: $json } }}",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 15000
         }
       },
@@ -691,7 +703,10 @@
       "name": "Build Instagram Caption Prompt",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3360, 0]
+      "position": [
+        3360,
+        0
+      ]
     },
     {
       "parameters": {
@@ -700,16 +715,30 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            {"name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}"},
-            {"name": "anthropic-version", "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"},
-            {"name": "Content-Type", "value": "application/json"}
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 1024, messages: [{ role: 'user', content: $json.prompt }] } }}",
         "options": {
-          "response": {"response": {"fullResponse": true, "responseFormat": "json"}},
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
           "timeout": 60000,
           "neverError": true
         }
@@ -718,7 +747,10 @@
       "name": "Write Instagram Caption with Claude",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [3600, 0]
+      "position": [
+        3600,
+        0
+      ]
     },
     {
       "parameters": {
@@ -728,7 +760,10 @@
       "name": "Route Instagram Caption Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [3840, 0]
+      "position": [
+        3840,
+        0
+      ]
     },
     {
       "parameters": {
@@ -736,13 +771,22 @@
         "url": "http://renderer:3001/v1/publish/instagram",
         "sendHeaders": true,
         "headerParameters": {
-          "parameters": [{"name": "Content-Type", "value": "application/json"}]
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
         },
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { outputLocation: $json.outputLocation, caption: $json.caption } }}",
         "options": {
-          "response": {"response": {"responseFormat": "json"}},
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
           "timeout": 180000
         }
       },
@@ -750,7 +794,10 @@
       "name": "Publish to Instagram",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [4080, 0]
+      "position": [
+        4080,
+        0
+      ]
     },
     {
       "id": "collect-script-images",
@@ -1207,19 +1254,59 @@
       ]
     },
     "Render 9:16 Reel with Subtitles": {
-      "main": [[{"node": "Record Topic to History", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Record Topic to History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Record Topic to History": {
-      "main": [[{"node": "Build Instagram Caption Prompt", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Build Instagram Caption Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Build Instagram Caption Prompt": {
-      "main": [[{"node": "Write Instagram Caption with Claude", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Write Instagram Caption with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Write Instagram Caption with Claude": {
-      "main": [[{"node": "Route Instagram Caption Result", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Route Instagram Caption Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Route Instagram Caption Result": {
-      "main": [[{"node": "Publish to Instagram", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Publish to Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
