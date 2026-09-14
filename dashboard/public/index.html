@@ -62,6 +62,7 @@
   .status.running, .status.new, .status.waiting { color: var(--blue); } .status.canceled { color: var(--amber); }
   .error-text { color: var(--red); display: block; margin-top: 3px; max-width: 45ch; }
   .table-footer { display: flex; justify-content: center; padding: 12px; border-top: 1px solid var(--line); }
+  .mobile-list { display: none; }
   button { border: 1px solid var(--line-strong); background: var(--paper); color: var(--ink); padding: 8px 12px; cursor: pointer; border-radius: 4px; }
   button:hover { border-color: var(--ink); } button:disabled { opacity: .55; cursor: wait; }
   button.primary { background: var(--ink); color: white; border-color: var(--ink); font-weight: 600; }
@@ -77,11 +78,56 @@
   .good-text { color: var(--green); } .bad-text { color: var(--red); } .warn-text { color: var(--amber); }
   video { display: block; width: 100%; max-width: 420px; margin-top: 8px; background: #000; }
   @media (max-width: 760px) {
-    .shell { width: min(100% - 28px,1180px); padding-top: 26px; }
-    .masthead { grid-template-columns: 1fr; gap: 22px; } .next-run { text-align: left; }
-    main { gap: 34px; margin-top: 30px; } .run-card { grid-template-columns: 1fr; gap: 10px; }
-    .secondary-grid { grid-template-columns: 1fr; } .table-frame { border-left: 0; border-right: 0; margin-inline: -14px; }
-    th, td { padding-inline: 12px; }
+    .shell { width: 100%; padding: 18px 14px 48px; }
+    .masthead { grid-template-columns: 1fr; gap: 16px; padding: 0 0 16px; }
+    .brand { font-size: 12px; }
+    h1 { margin-top: 8px; font-size: 32px; }
+    .updated { margin-top: 5px; font-size: 12px; }
+    .next-run { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 2px 12px; text-align: left; padding: 13px 0 0; border-top: 1px solid var(--line); }
+    .next-label { font-size: 12px; }
+    .next-time { grid-column: 1 / -1; font-size: 24px; }
+    .next-detail { grid-column: 1 / -1; margin: 0; }
+    .service-strip { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 18px; padding: 7px 0; }
+    .service { min-height: 44px; border-bottom: 1px solid var(--line); }
+    .service:nth-last-child(-n+2) { border-bottom: 0; }
+    .service-state { font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+    #banners { margin-top: 12px; }
+    .banner { padding: 9px 10px; margin-bottom: 6px; line-height: 1.35; }
+    main { gap: 30px; margin-top: 26px; }
+    .section-heading { margin-bottom: 10px; }
+    h2 { font-size: 18px; }
+    .run-card { grid-template-columns: 1fr auto; gap: 8px 12px; min-height: 68px; padding: 14px; }
+    .node-list { grid-column: 1 / -1; }
+    .elapsed { grid-column: 2; grid-row: 1; }
+    .secondary-grid { grid-template-columns: 1fr; gap: 30px; }
+    .utility { margin-inline: -14px; padding: 18px 14px; border-left: 0; border-right: 0; }
+    .preset-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
+    .preset { min-height: 44px; padding: 8px; }
+    .schedule-row { display: grid; grid-template-columns: 1fr; }
+    input[type="text"], button.primary { min-height: 46px; width: 100%; }
+    .desktop-only { display: none; }
+    .mobile-list { display: block; margin-inline: -14px; background: var(--paper); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .mobile-record { border-bottom: 1px solid var(--line); }
+    .mobile-record:last-child { border-bottom: 0; }
+    .mobile-record summary { position: relative; min-height: 72px; padding: 13px 42px 13px 14px; cursor: pointer; list-style: none; }
+    .mobile-record summary::-webkit-details-marker { display: none; }
+    .mobile-record summary::after { content: "+"; position: absolute; right: 15px; top: 50%; translate: 0 -50%; color: var(--muted); font-size: 20px; font-weight: 300; }
+    .mobile-record[open] summary::after { content: "−"; }
+    .mobile-record[open] summary { background: #fafbfa; }
+    .record-line { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+    .record-line time { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .record-node { display: block; margin-top: 7px; overflow: hidden; color: var(--muted); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .record-details { display: grid; grid-template-columns: 78px minmax(0,1fr); gap: 8px 12px; margin: 0; padding: 14px; border-top: 1px solid var(--line); background: var(--canvas); font-size: 13px; }
+    .record-details dt { color: var(--muted); }
+    .record-details dd { margin: 0; overflow-wrap: anywhere; }
+    .record-details .record-error { color: var(--red); }
+    .table-footer { margin-inline: -14px; min-height: 58px; background: var(--paper); }
+    .table-footer button { width: calc(100% - 28px); min-height: 44px; }
+    .video-record summary { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; }
+    .record-file { overflow: hidden; font: 12px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+    .record-duration { color: var(--muted); font-size: 12px; }
+    .video-details { padding: 0 14px 14px; color: var(--muted); font-size: 12px; }
+    .video-details video { margin-top: 12px; }
   }
   @media (prefers-reduced-motion: no-preference) {
     .pulse { animation: breathe 2.2s ease-in-out infinite; }
@@ -131,7 +177,8 @@
     </div>
   </main>
 </div>
-<script>
+<script type="module">
+import {executionDisclosure, videoDisclosure} from './presenters.mjs';
 const $ = (selector, element = document) => element.querySelector(selector);
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'})[character]);
 const fmtBytes = bytes => bytes == null ? '—' : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -191,7 +238,17 @@ function statusLabel(status) {
 function renderExecutions() {
   $('#executionCount').textContent = `${executionRows.length} loaded`;
   if (!executionRows.length) { $('#executions').innerHTML = '<div class="empty">No executions yet.</div>'; return; }
-  $('#executions').innerHTML = `<div class="table-frame"><div class="table-scroll"><table><thead><tr><th>Status</th><th>Started</th><th>Duration</th><th>Mode</th><th>Node</th><th>Execution</th></tr></thead><tbody>${executionRows.map(execution => `<tr><td>${statusLabel(execution.status)}</td><td class="numeric">${escapeHtml(fmtDate(execution.startedAt))}</td><td class="numeric">${escapeHtml(durationBetween(execution.startedAt, execution.stoppedAt || new Date()))}</td><td>${escapeHtml(execution.mode ?? '—')}</td><td>${escapeHtml(execution.currentNodes[0] ?? execution.lastNode ?? '—')}${execution.error ? `<span class="error-text">${escapeHtml(execution.error)}</span>` : ''}</td><td class="mono muted">#${escapeHtml(execution.id)}</td></tr>`).join('')}</tbody></table></div>${nextExecutionCursor ? '<div class="table-footer"><button id="loadMore">Load older executions</button></div>' : ''}</div>`;
+  const mobileRows = executionRows.map(execution => executionDisclosure({
+    status: execution.status,
+    statusLabel: execution.status === 'success' ? 'Succeeded' : execution.status === 'error' ? 'Failed' : execution.status.charAt(0).toUpperCase() + execution.status.slice(1),
+    started: new Date(execution.startedAt).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'}),
+    duration: durationBetween(execution.startedAt, execution.stoppedAt || new Date()),
+    mode: execution.mode ? execution.mode.charAt(0).toUpperCase() + execution.mode.slice(1) : '—',
+    node: execution.currentNodes[0] ?? execution.lastNode,
+    error: execution.error,
+    id: execution.id,
+  })).join('');
+  $('#executions').innerHTML = `<div class="table-frame desktop-only"><div class="table-scroll"><table><thead><tr><th>Status</th><th>Started</th><th>Duration</th><th>Mode</th><th>Node</th><th>Execution</th></tr></thead><tbody>${executionRows.map(execution => `<tr><td>${statusLabel(execution.status)}</td><td class="numeric">${escapeHtml(fmtDate(execution.startedAt))}</td><td class="numeric">${escapeHtml(durationBetween(execution.startedAt, execution.stoppedAt || new Date()))}</td><td>${escapeHtml(execution.mode ?? '—')}</td><td>${escapeHtml(execution.currentNodes[0] ?? execution.lastNode ?? '—')}${execution.error ? `<span class="error-text">${escapeHtml(execution.error)}</span>` : ''}</td><td class="mono muted">#${escapeHtml(execution.id)}</td></tr>`).join('')}</tbody></table></div></div><div class="mobile-list">${mobileRows}</div>${nextExecutionCursor ? '<div class="table-footer"><button id="loadMore">Load older executions</button></div>' : ''}`;
   $('#loadMore')?.addEventListener('click', () => loadExecutions(false));
 }
 async function loadExecutions(reset = true) {
@@ -225,7 +282,8 @@ $('#saveSchedule').addEventListener('click', async () => {
 async function loadVideos() {
   const videos = await getJSON('/api/videos'); $('#videoCount').textContent = `${videos.length} released`;
   if (!videos.length) { $('#videos').innerHTML = '<div class="empty">No rendered videos yet.</div>'; return; }
-  $('#videos').innerHTML = `<div class="table-frame"><div class="table-scroll"><table><thead><tr><th>File</th><th>Created</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody>${videos.map((video,index) => `<tr><td class="mono">${escapeHtml(video.file)}</td><td class="numeric muted">${escapeHtml(fmtDate(video.createdAt))}</td><td>${escapeHtml(fmtDuration(video.durationSeconds))}</td><td class="muted">${escapeHtml(fmtBytes(video.sizeBytes))}</td><td><button class="text-button video-toggle" data-index="${index}">Play</button></td></tr><tr id="player-${index}" hidden><td colspan="5"><video controls preload="none" src="${escapeHtml(video.url)}"></video></td></tr>`).join('')}</tbody></table></div></div>`;
+  const mobileRows = videos.map(video => videoDisclosure({file:video.file,created:fmtDate(video.createdAt),duration:fmtDuration(video.durationSeconds),size:fmtBytes(video.sizeBytes),url:video.url})).join('');
+  $('#videos').innerHTML = `<div class="table-frame desktop-only"><div class="table-scroll"><table><thead><tr><th>File</th><th>Created</th><th>Duration</th><th>Size</th><th></th></tr></thead><tbody>${videos.map((video,index) => `<tr><td class="mono">${escapeHtml(video.file)}</td><td class="numeric muted">${escapeHtml(fmtDate(video.createdAt))}</td><td>${escapeHtml(fmtDuration(video.durationSeconds))}</td><td class="muted">${escapeHtml(fmtBytes(video.sizeBytes))}</td><td><button class="text-button video-toggle" data-index="${index}">Play</button></td></tr><tr id="player-${index}" hidden><td colspan="5"><video controls preload="none" src="${escapeHtml(video.url)}"></video></td></tr>`).join('')}</tbody></table></div></div><div class="mobile-list">${mobileRows}</div>`;
   document.querySelectorAll('.video-toggle').forEach(button => button.addEventListener('click', () => { const row = $(`#player-${button.dataset.index}`); row.hidden = !row.hidden; button.textContent = row.hidden ? 'Play' : 'Hide'; }));
 }
 function handleExecutionRefreshError(error) {
