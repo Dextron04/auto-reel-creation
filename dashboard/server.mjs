@@ -32,7 +32,10 @@ async function n8nFetch(urlPath, opts = {}) {
 async function findWorkflowId() {
   if (cachedWorkflowId) return cachedWorkflowId;
   const list = await n8nFetch('/api/v1/workflows?limit=250');
-  const match = (list.data ?? []).find(w => w.name === 'Research and Render Local AI Reel');
+  // Multiple workflows can share a name (a stale re-import left over from manual UI work, for
+  // example) — the active one is the one actually running scheduled/manual executions.
+  const matches = (list.data ?? []).filter(w => w.name === 'Research and Render Local AI Reel');
+  const match = matches.find(w => w.active) ?? matches[0];
   if (!match) throw new Error('N8N_WORKFLOW_NOT_FOUND');
   cachedWorkflowId = match.id;
   return cachedWorkflowId;
