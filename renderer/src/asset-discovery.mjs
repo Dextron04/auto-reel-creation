@@ -146,8 +146,13 @@ export function isUsableVisualCue(cue, dialogue) {
 
 const PURPOSES = ['identity','interface','mechanism','outcome'];
 export const keyOf = candidate => candidate.assetId ?? assetKey(candidate.url);
+// assetKey() strips URL fragments as CDN noise, but screenshotPage() deliberately uses
+// #view0/#view1/#view2 as its assetId to keep distinct crops of the same page distinct
+// (see keyOf and SCREENSHOT_SLICES) — stripping that fragment here would collapse three
+// genuinely different pictures into one and undercount real, judge-approved visuals.
+const finalAssetKey = value => /#view\d+$/.test(String(value)) ? String(value) : assetKey(value);
 export function validateVisualSelection(visuals, {minimumImages = 8, requiredTurns = 6} = {}) {
-  const distinctImages = new Set((visuals || []).map(visual => assetKey(visual.assetUrl || visual.imagePath))).size;
+  const distinctImages = new Set((visuals || []).map(visual => finalAssetKey(visual.assetUrl || visual.imagePath))).size;
   if (distinctImages < minimumImages) throw new Error(`VISUAL_PREFLIGHT_FAILED:${distinctImages}_DISTINCT_IMAGES`);
   const coveredTurns = new Set((visuals || []).map(visual => Number(visual.startTurn)).filter(Number.isInteger));
   if (coveredTurns.size < requiredTurns) throw new Error(`VISUAL_PREFLIGHT_FAILED:${coveredTurns.size}_TURNS_COVERED`);

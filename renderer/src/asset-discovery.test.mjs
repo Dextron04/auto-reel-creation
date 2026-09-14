@@ -78,6 +78,15 @@ test('visual preflight blocks fewer than eight distinct approved images',()=>{
   const duplicated = Array.from({length:8},(_,index)=>({assetUrl:index<2?'https://cdn.example/same.png':`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'approved'}));
   assert.throws(()=>validateVisualSelection(duplicated),/VISUAL_PREFLIGHT_FAILED:7_DISTINCT_IMAGES/);
 });
+test('screenshot slices of the same page each count as a distinct approved image',()=>{
+  // Reproduces a real production failure: three genuinely different crops of one page
+  // (hero/middle/lower, assetId `<url>#view0/1/2`) were miscounted as one duplicate
+  // because the old check ran assetUrl through assetKey(), which strips URL fragments.
+  const slices = ['#view0','#view1','#view2'].map((view,index)=>({assetUrl:`https://example.com/page${view}`,startTurn:index,judgement:'approved'}));
+  const others = Array.from({length:5},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index+3,judgement:'approved'}));
+  const result = validateVisualSelection([...slices,...others]);
+  assert.equal(result.distinctImages,8);
+});
 test('visual preflight accepts eight distinct vision-approved images covering every turn',()=>{
   const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'matches dialogue'}));
   assert.equal(validateVisualSelection(visuals).distinctImages,8);
