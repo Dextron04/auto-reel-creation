@@ -15,7 +15,7 @@ The workflow researches current AI developer tools, creates a 30-second Peter–
 5. Open n8n at http://localhost:5678 and import `n8n/workflows/research-and-render-reel.json`.
 6. Run the workflow. Rendered files appear in `output/`.
 
-The review dashboard is available at http://localhost:4000. It shows renderer and n8n health, the active schedule, recent executions, pipeline gates, and playable rendered videos. Set `N8N_API_KEY` in `.env.prod` for live execution history and schedule controls.
+The operations dashboard is available at http://localhost:4000. It shows service health, the next scheduled run, live nodes, paginated execution history, schedule controls, and playable rendered videos. Set `N8N_API_KEY` in `.env.prod` for live execution data and schedule controls.
 
 The renderer health endpoint is http://localhost:3001/health. Platform publishing is intentionally not included yet.
 

@@ -2,17 +2,18 @@ import express from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {formatScheduledRun, mapExecution, nextCronOccurrence} from './operations.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 const OUTPUT_DIR = path.join(ROOT, 'output');
 const WORKFLOW_PATH = path.join(ROOT, 'n8n/workflows/research-and-render-reel.json');
-const GATES_PATH = path.join(ROOT, 'GATES.md');
 
 const N8N_BASE_URL = process.env.N8N_BASE_URL ?? 'http://localhost:5678';
 const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
 const RENDERER_BASE_URL = process.env.RENDERER_URL_PUBLIC ?? 'http://localhost:3001';
 const PORT = process.env.DASHBOARD_PORT ?? 4000;
+const SCHEDULE_TIMEZONE = process.env.GENERIC_TIMEZONE ?? 'America/Chicago';
 const SCHEDULE_NODE_NAME = 'Research Twice Daily';
 
 let cachedWorkflowId = null;
@@ -132,10 +133,26 @@ app.get('/api/schedule', async (_req, res) => {
       const id = await findWorkflowId();
       const wf = await n8nFetch(`/api/v1/workflows/${id}`);
       const node = findScheduleNode(wf);
-      return res.json({cron: cronFromNode(node), source: 'n8n', active: wf.active});
+      const cron = cronFromNode(node);
+      const nextRun = wf.active ? nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE) : null;
+      return res.json({
+        cron,
+        source: 'n8n',
+        active: wf.active,
+        timezone: SCHEDULE_TIMEZONE,
+        nextRunAt: nextRun?.toISOString() ?? null,
+        nextRunLabel: nextRun ? formatScheduledRun(nextRun, SCHEDULE_TIMEZONE) : null,
+      });
     }
     const cron = await readLocalScheduleFile();
-    res.json({cron, source: 'file'});
+    const nextRun = nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE);
+    res.json({
+      cron,
+      source: 'file',
+      timezone: SCHEDULE_TIMEZONE,
+      nextRunAt: nextRun?.toISOString() ?? null,
+      nextRunLabel: nextRun ? formatScheduledRun(nextRun, SCHEDULE_TIMEZONE) : null,
+    });
   } catch (error) { res.status(500).json({error: error.message}); }
 });
 
@@ -158,7 +175,14 @@ app.post('/api/schedule', async (req, res) => {
     try { await writeLocalScheduleFile(cron); }
     catch (error) { fileWarning = `Live schedule updated, but failed to sync n8n/workflows/research-and-render-reel.json: ${error.message}`; }
 
-    res.json({ok: true, cron, fileWarning});
+    const nextRun = nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE);
+    res.json({
+      ok: true,
+      cron,
+      fileWarning,
+      nextRunAt: nextRun?.toISOString() ?? null,
+      nextRunLabel: nextRun ? formatScheduledRun(nextRun, SCHEDULE_TIMEZONE) : null,
+    });
   } catch (error) { res.status(500).json({error: error.message}); }
 });
 
@@ -187,41 +211,22 @@ app.get('/api/videos', async (_req, res) => {
   } catch (error) { res.status(500).json({error: error.message}); }
 });
 
-app.get('/api/executions', async (_req, res) => {
+app.get('/api/executions', async (req, res) => {
   if (!n8nConfigured()) return res.json({configured: false, recent: []});
   try {
     const id = await findWorkflowId();
-    const list = await n8nFetch(`/api/v1/executions?workflowId=${id}&limit=20&includeData=true`);
-    const recent = (list.data ?? []).map(exec => ({
-      id: exec.id,
-      status: exec.status,
-      mode: exec.mode,
-      startedAt: exec.startedAt,
-      stoppedAt: exec.stoppedAt,
-      error: exec.status === 'error' ? (exec.data?.resultData?.error?.message ?? 'Unknown error') : null,
-      failedNode: exec.status === 'error' ? (exec.data?.resultData?.lastNodeExecuted ?? null) : null,
-    }));
-    res.json({configured: true, recent});
-  } catch (error) { res.status(500).json({configured: true, error: error.message, recent: []}); }
-});
-
-app.get('/api/gates', async (_req, res) => {
-  try {
-    const raw = await fs.readFile(GATES_PATH, 'utf8');
-    const gates = [];
-    const lines = raw.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      const match = lines[i].match(/^- \[( |x)\] (G\d+): (.+)$/);
-      if (!match) continue;
-      let evidence = null;
-      for (let j = i + 1; j < Math.min(i + 6, lines.length) && !lines[j].startsWith('- ['); j++) {
-        const evMatch = lines[j].match(/^\s*EVIDENCE: (.+)$/);
-        if (evMatch) { evidence = evMatch[1]; break; }
-      }
-      gates.push({id: match[2], done: match[1] === 'x', title: match[3], evidence});
-    }
-    res.json(gates);
-  } catch (error) { res.status(500).json({error: error.message}); }
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
+    const params = new URLSearchParams({workflowId: id, limit: '50', includeData: 'true'});
+    if (cursor) params.set('cursor', cursor);
+    const list = await n8nFetch(`/api/v1/executions?${params}`);
+    const executions = (list.data ?? []).map(mapExecution);
+    res.json({
+      configured: true,
+      executions,
+      running: executions.filter(exec => exec.status === 'running'),
+      nextCursor: list.nextCursor ?? null,
+    });
+  } catch (error) { res.status(500).json({configured: true, error: error.message, executions: [], running: [], nextCursor: null}); }
 });
 
 app.listen(PORT, () => console.log(`dashboard listening on ${PORT}`));
