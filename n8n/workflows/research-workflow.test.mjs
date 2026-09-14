@@ -434,12 +434,24 @@ test('dialogue normalization emits alternating voice jobs and rejects bad orderi
 });
 
 test('render job preserves script cues and research for image collection', () => {
-  const jobs = Array.from({length:6},(_,i)=>({json:{speaker:i%2?'stewie':'peter',text:'Meet DeepSeek',turn_index:i,audio_path:'/media/voice.wav',visuals:[{turn_index:0,phrase:'DeepSeek',query:'DeepSeek logo'}]}}));
+  const fullCoverage = Array.from({length:6},(_,i)=>({turn_index:i,phrase:'DeepSeek',query:'DeepSeek logo'}));
+  const jobs = Array.from({length:6},(_,i)=>({json:{speaker:i%2?'stewie':'peter',text:'Meet DeepSeek',turn_index:i,audio_path:'/media/voice.wav',visuals:fullCoverage}}));
   const result = new Function('$items',nodeById.get('render-prep').parameters.jsCode)(name=>name==='Normalize Peter and Stewie Dialogue'?jobs:[{json:{research:{recommended_topic:{tool_name:'DeepSeek'}}}}]);
   assert.equal(result[0].json.visualCues[0].phrase,'DeepSeek');
   assert.equal(result[0].json.research.recommended_topic.tool_name,'DeepSeek');
   assert.deepEqual(result[0].json.characterImages, {peter: '/media/peter.png', stewie: '/media/stewie.png'});
   assert.equal(workflow.connections['Build Dialogue Audio and Subtitle Render Job'].main[0][0].node,'Find and Download Script Images');
+});
+
+test('render prep fails fast when a turn has no visual cue at all, before any image search', () => {
+  // Reproduces a real production failure: Claude wrote cues for turns [0,0,2,2,3,4,5,5],
+  // skipping turn 1 entirely, despite the script prompt asking for every turn covered. The old
+  // code only caught this at the very end of visual discovery (VISUAL_PREFLIGHT_FAILED:5_TURNS_COVERED),
+  // after burning the whole search/download/judge budget on a run that was already doomed.
+  const gappyCues = [0,0,2,2,3,4,5,5].map((turn_index)=>({turn_index,phrase:'DeepSeek',query:'DeepSeek screenshot'}));
+  const jobs = Array.from({length:6},(_,i)=>({json:{speaker:i%2?'stewie':'peter',text:'Meet DeepSeek',turn_index:i,audio_path:'/media/voice.wav',visuals:gappyCues}}));
+  const run = () => new Function('$items',nodeById.get('render-prep').parameters.jsCode)(name=>name==='Normalize Peter and Stewie Dialogue'?jobs:[{json:{research:{recommended_topic:{tool_name:'DeepSeek'}}}}]);
+  assert.throws(run, /DIALOGUE_CUES_MISSING_TURNS:5_OF_6/);
 });
 
 test('dialogue voice generation routes each turn to the matching configured voice', () => {
