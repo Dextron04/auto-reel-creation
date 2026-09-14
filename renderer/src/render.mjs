@@ -42,7 +42,13 @@ export async function renderReel(input) {
   const serveUrl = await bundle({entryPoint: path.resolve('src/index.jsx'), webpackOverride: (config) => config});
   const composition = await selectComposition({serveUrl, id: 'Reel', inputProps: request, browserExecutable});
   const outputLocation = path.join(OUTPUT_ROOT, `${input.jobId ?? `reel-${Date.now()}`}.mp4`);
-  await renderMedia({composition: {...composition, durationInFrames: request.durationInFrames}, serveUrl, codec: 'h264', audioCodec: 'aac', outputLocation, inputProps: request, browserExecutable});
+  // ponytail: Remotion defaults concurrency to roughly half the visible CPU cores, each a full
+  // headless Chromium tab compositing a 1080x1920 frame — on this host that multiplication (not
+  // ffmpeg, not Node) is what pushed the container into an OS-level OOM kill of a sibling
+  // container sharing the same Docker VM memory ceiling. Single-threaded render is slower but
+  // bounded; raise this once the host has real memory headroom to spare.
+  const concurrency = Number(process.env.REMOTION_RENDER_CONCURRENCY || 1);
+  await renderMedia({composition: {...composition, durationInFrames: request.durationInFrames}, serveUrl, codec: 'h264', audioCodec: 'aac', outputLocation, inputProps: request, browserExecutable, concurrency});
   const report = createRenderReport(request, outputLocation);
   const reportLocation = `${outputLocation}.json`;
   await fs.writeFile(reportLocation, JSON.stringify(report, null, 2));
