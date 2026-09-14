@@ -9,7 +9,10 @@ test('buildVideoUrl joins the public base url and the output filename', () => {
   assert.equal(buildVideoUrl('/output/reel-123.mp4', 'https://media.example.com/'), 'https://media.example.com/output/reel-123.mp4')
 })
 test('buildVideoUrl throws when no base url is configured', () => {
-  assert.throws(() => buildVideoUrl('/output/reel-123.mp4', undefined), /PUBLIC_MEDIA_BASE_URL/)
+  const saved = process.env.PUBLIC_MEDIA_BASE_URL
+  delete process.env.PUBLIC_MEDIA_BASE_URL
+  try { assert.throws(() => buildVideoUrl('/output/reel-123.mp4'), /PUBLIC_MEDIA_BASE_URL/) }
+  finally { if (saved !== undefined) process.env.PUBLIC_MEDIA_BASE_URL = saved }
 })
 
 test('createContainer returns the creation id from a successful response', async () => {
