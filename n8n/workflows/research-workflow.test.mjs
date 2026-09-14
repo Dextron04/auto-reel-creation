@@ -329,6 +329,11 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.match(result[0].json.prompt, /Claude Vision will reject irrelevant candidates/);
   assert.match(result[0].json.prompt, /government documents/);
   assert.match(result[0].json.prompt, /one primary tool/i);
+  // Live executions twice generated cues that skipped a turn entirely (turn_index 0-5 not all
+  // covered), which only ever failed much later in visual discovery. This is a hard requirement
+  // with a self-check instruction, not the single soft clause it used to be.
+  assert.match(result[0].json.prompt, /hard requirement, not a suggestion/);
+  assert.match(result[0].json.prompt, /turn_index 0, 1, 2, 3, 4, and 5 each appear at least once/);
   assert.match(result[0].json.prompt, /one sentence/i);
   assert.match(result[0].json.prompt, /do not combine unrelated products/i);
   assert.match(result[0].json.prompt, /visuals/i);
