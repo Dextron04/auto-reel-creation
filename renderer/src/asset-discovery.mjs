@@ -180,6 +180,27 @@ export function parseBraveResults(json, query) {
   return parseSearchResults({results: results.map(r => ({image:r.properties?.url, url:r.url, title:r.title, width:r.properties?.width ?? 1000, height:r.properties?.height ?? 800}))}, query);
 }
 
+// Self-hosted SearXNG (SEARXNG_URL, internal docker network — not routed through the SSRF-guarded
+// getPublic() since it's our own trusted service, not arbitrary external content): aggregates Bing,
+// DuckDuckGo, and whichever other image engines it has enabled into one JSON call. Diversifies across
+// backends so one engine's rate limit or IP block doesn't zero out image search for a whole run.
+export function parseSearxngResults(json, query) {
+  const results = Array.isArray(json?.results) ? json.results : [];
+  return results
+    .filter(r => r.img_src?.startsWith('https://') && String(r.img_format || '').toLowerCase() !== 'svg')
+    .filter(r => {
+      const [w, h] = String(r.resolution || '').split(/[×x]/i).map(Number);
+      return !r.resolution || (w >= 400 && h >= 300);
+    })
+    .slice(0, 8)
+    .map((r, index) => ({url:r.img_src, sourceUrl:r.url, kind:'screenshot', score:9 - index, search:true, title:String(r.title || ''), text:`search ${String(r.title || '')} ${r.img_src}`.toLowerCase(), query}));
+}
+async function searchSearxng(query) {
+  const res = await fetch(`${process.env.SEARXNG_URL}/search?q=${encodeURIComponent(query)}&categories=images&format=json`, {signal:AbortSignal.timeout(15000)});
+  if (!res.ok) throw new Error(`SEARXNG_HTTP_${res.status}`);
+  return parseSearxngResults(await res.json(), query);
+}
+
 // Plain keyless DDG image search: no browser, no Fortress. DDG's i.js JSON endpoint needs a `vqd`
 // session token first, normally computed by DDG's own client-side JS on the search page; we scrape it
 // out of the page's HTML instead of running a real browser to get it. Rate-limits under bursts (a full
@@ -208,6 +229,7 @@ export async function searchImages(query) {
     const result = await getPublic(`https://api.search.brave.com/res/v1/images/search?q=${q}&count=8&safesearch=strict`, 0, {Accept:'application/json', 'X-Subscription-Token':process.env.BRAVE_SEARCH_API_KEY});
     return parseBraveResults(JSON.parse(result.body.toString()), query);
   }
+  if (process.env.SEARXNG_URL) return searchSearxng(query);
   await sleep(500); // paces back-to-back cue searches so a full run doesn't burst DDG's rate limit
   const vqd = await fetchDdgVqd(query);
   const result = await getPublicWithRetry(`https://duckduckgo.com/i.js?l=us-en&o=json&q=${q}&vqd=${vqd}&f=,,,&p=1`, {Accept:'application/json', Referer:'https://duckduckgo.com/'});
