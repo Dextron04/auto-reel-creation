@@ -14,14 +14,25 @@ services:
       - n8n_data:/home/node/.n8n
       - ./media:/media
       - ./output:/output
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    ports: ["127.0.0.1:8888:8080"]
   renderer:
     build: ./renderer
     env_file:
       - .env.prod
+    environment:
+      - SEARXNG_URL=http://searxng:8080
     ports: ["127.0.0.1:3001:3001"]
     volumes:
       - ./media:/media
       - ./output:/output
+    depends_on:
+      - searxng
   dashboard:
     build: ./dashboard
     env_file:

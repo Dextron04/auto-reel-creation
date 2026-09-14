@@ -69,10 +69,18 @@ test('judge prompt carries the spoken line, phrase and purpose',()=>{
   const prompt=judgePrompt({tool:'Agents API',topic:'managed agent loops',turnText:'It handles retries for you.',phrase:'handles retries',purpose:'mechanism',query:'retry diagram'});
   for(const piece of ['Agents API','It handles retries for you.','handles retries','diagram or code','different product than Agents API','"best"']) assert.match(prompt,new RegExp(piece.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
 });
-import {parseBraveResults} from './asset-discovery.mjs';
+import {parseBraveResults,parseSearxngResults} from './asset-discovery.mjs';
 test('Brave image results map onto the same candidate shape',()=>{
   const out=parseBraveResults({results:[{url:'https://page.example/a',title:'Arch diagram',properties:{url:'https://img.example/a.png',width:1200,height:700}}]},'arch');
   assert.deepEqual(out.map(r=>[r.url,r.sourceUrl,r.title]),[['https://img.example/a.png','https://page.example/a','Arch diagram']]);
+});
+test('SearXNG results drop icon-library SVGs and tiny images, keep real screenshots',()=>{
+  const out=parseSearxngResults({results:[
+    {img_src:'https://cdn.jsdelivr.net/npm/lucide-static/icons/ad.svg',url:'https://icons.example',title:'ad icon',img_format:'SVG',resolution:''},
+    {img_src:'https://cdn.example/tiny.png',url:'https://x',title:'tiny',img_format:'',resolution:'120x80'},
+    {img_src:'https://code.visualstudio.com/assets/docs/agents/chat-debug-view/agent-logs.png',url:'https://code.visualstudio.com/docs/agents/chat-debug-view',title:'Debug chat interactions',img_format:'png',resolution:'1808×1130'},
+  ]},'coding agent debugging');
+  assert.deepEqual(out.map(r=>[r.url,r.sourceUrl,r.title]),[['https://code.visualstudio.com/assets/docs/agents/chat-debug-view/agent-logs.png','https://code.visualstudio.com/docs/agents/chat-debug-view','Debug chat interactions']]);
 });
 test('visual preflight blocks fewer than eight distinct approved images',()=>{
   const duplicated = Array.from({length:8},(_,index)=>({assetUrl:index<2?'https://cdn.example/same.png':`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'approved'}));
