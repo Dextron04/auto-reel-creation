@@ -60,10 +60,16 @@ test('web image search results become ranked candidates and tiny images are drop
   assert.deepEqual(result.map(r=>[r.url,r.sourceUrl,r.score,r.search]),[['https://cdn.example/diagram.png','https://blog.example/post',9,true]]);
 });
 test('judge verdicts are parsed strictly and out-of-range picks mean no image',()=>{
-  assert.deepEqual(parseJudgement('Sure: {"best": 2, "reason": "shows the dashboard"}',3),{index:1,reason:'shows the dashboard'});
+  assert.deepEqual(parseJudgement('Sure: {"best": 2, "reason": "shows the dashboard"}',3),{index:1,reason:'shows the dashboard',suggestedQuery:null});
   assert.equal(parseJudgement('{"best": 0, "reason": "none fit"}',3).index,null);
   assert.equal(parseJudgement('{"best": 7, "reason": "?"}',3).index,null);
   assert.equal(parseJudgement('not json',3).index,null);
+});
+test('a rejection carries the judge\'s suggested follow-up search query',()=>{
+  const rejected = parseJudgement('{"best": 0, "reason": "none show the metric", "suggested_query": "DeepSeek V4.1 Flash pricing dashboard screenshot"}',4);
+  assert.equal(rejected.index,null);
+  assert.equal(rejected.suggestedQuery,'DeepSeek V4.1 Flash pricing dashboard screenshot');
+  assert.equal(parseJudgement('{"best": 2, "reason": "shows it"}',3).suggestedQuery,null);
 });
 test('judge prompt carries the spoken line, phrase and purpose',()=>{
   const prompt=judgePrompt({tool:'Agents API',topic:'managed agent loops',turnText:'It handles retries for you.',phrase:'handles retries',purpose:'mechanism',query:'retry diagram'});

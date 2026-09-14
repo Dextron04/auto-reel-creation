@@ -256,16 +256,20 @@ export function parseJudgement(text, count) {
   try {
     const parsed = JSON.parse(match?.[0] ?? '');
     const best = Number(parsed.best);
-    return {index: Number.isInteger(best) && best >= 1 && best <= count ? best - 1 : null, reason: String(parsed.reason ?? '')};
-  } catch {return {index: null, reason: 'unparseable judgement'};}
+    return {
+      index: Number.isInteger(best) && best >= 1 && best <= count ? best - 1 : null,
+      reason: String(parsed.reason ?? ''),
+      suggestedQuery: String(parsed.suggested_query ?? '').trim() || null,
+    };
+  } catch {return {index: null, reason: 'unparseable judgement', suggestedQuery: null};}
 }
 export function judgePrompt({tool, topic, turnText, phrase, purpose, query}) {
   const purposes = {identity:'the tool\'s logo or brand mark', interface:'the tool\'s actual user interface, editor, terminal or dashboard', mechanism:'a diagram or code showing how it works', outcome:'a result, benchmark, chart, bill or comparison'};
-  return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}. If none clearly fit, answer 0.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>"}`;
+  return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}. If none clearly fit, answer 0 and suggest a more specific web image search query that would actually find a picture proving this exact line — name the concrete thing to search for (a specific UI panel, a specific metric or chart, a specific diagram), not a rephrase of the line itself.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>", "suggested_query": "<only when best is 0>"}`;
 }
 async function judgeVisuals(context, downloaded) {
-  if (!anthropic) return {index:null, reason:'vision judge unavailable'};
-  if (!downloaded.length) return {index:null, reason:'nothing downloadable'};
+  if (!anthropic) return {index:null, reason:'vision judge unavailable', suggestedQuery:null};
+  if (!downloaded.length) return {index:null, reason:'nothing downloadable', suggestedQuery:null};
   const content = [];
   for (const [index, item] of downloaded.entries()) {
     content.push({type:'text', text:`Image ${index + 1}: ${item.candidate.title || item.candidate.alt || item.candidate.kind} (from ${new URL(item.candidate.sourceUrl || item.candidate.url).hostname})`});
@@ -292,74 +296,97 @@ export async function discoverVisuals(input) {
   };
   const tool = String(input.research?.recommended_topic?.tool_name || input.research?.recommended_topic?.topic || 'the tool');
   const topic = String(input.research?.recommended_topic?.one_line_value || input.focus || '');
+  const MAX_QUERY_ATTEMPTS = 5;
   for (const cue of cues) {
     if (!isUsableVisualCue(cue,input.dialogue)) {report.push({cue,status:'invalid_cue'}); continue;}
     const purpose = PURPOSES.includes(cue.visual_purpose) ? cue.visual_purpose : 'interface';
-    const query = cue.query || cue.phrase;
-    const candidates = [];
-    try {candidates.push(...await searchImages(purpose === 'identity' ? `${tool} logo` : `${tool} ${query}`));} catch (error) {report.push({search:query,error:error.message});}
-    try {candidates.push(...await githubReadmeCandidates(tool, query, fetchPage));} catch (error) {report.push({github:tool,error:error.message});}
     const urls = [...new Set([cue.source_url,...sources].filter(Boolean))].slice(0,3);
-    for (const url of urls) {
-      const response = await fetchPage(url);
-      if (response.error) {report.push({sourceUrl:url,error:response.error.message}); continue;}
-      // Social cards from other claim pages describe other articles, so only the cue's own page may contribute one.
-      if (response.type.includes('text/html')) candidates.push(...pageImages(response.body.toString(),response.url,query).filter(c => url === urls[0] || !c.social));
-      if (/github\.com\/[^/]+\/[^/]+/.test(url)) {
-        const readme = await fetchPage(`https://raw.githubusercontent.com/${url.match(/github\.com\/([^/]+\/[^/?#]+)/)[1].replace(/\.git$/,'')}/HEAD/README.md`);
-        if (!readme.error) candidates.push(...readmeImages(readme.body.toString(), url, query));
+    const shotUrls = new Set(); // shared across attempts for this cue: a page screenshot doesn't change with the query
+
+    // One full search -> download -> judge cycle for a given query. Re-run with the judge's own
+    // suggested_query (see judgePrompt) when it rejects everything, instead of leaving the cue empty
+    // on the first miss.
+    const runAttempt = async (attemptQuery) => {
+      const candidates = [];
+      try {candidates.push(...await searchImages(purpose === 'identity' ? `${tool} logo` : `${tool} ${attemptQuery}`));} catch (error) {report.push({search:attemptQuery,error:error.message});}
+      try {candidates.push(...await githubReadmeCandidates(tool, attemptQuery, fetchPage));} catch (error) {report.push({github:tool,error:error.message});}
+      for (const url of urls) {
+        const response = await fetchPage(url);
+        if (response.error) {report.push({sourceUrl:url,error:response.error.message}); continue;}
+        // Social cards from other claim pages describe other articles, so only the cue's own page may contribute one.
+        if (response.type.includes('text/html')) candidates.push(...pageImages(response.body.toString(),response.url,attemptQuery).filter(c => url === urls[0] || !c.social));
+        if (/github\.com\/[^/]+\/[^/]+/.test(url)) {
+          const readme = await fetchPage(`https://raw.githubusercontent.com/${url.match(/github\.com\/([^/]+\/[^/?#]+)/)[1].replace(/\.git$/,'')}/HEAD/README.md`);
+          if (!readme.error) candidates.push(...readmeImages(readme.body.toString(), url, attemptQuery));
+        }
       }
-    }
-    // Site icons only depict identity. A rendered source page joins the pool as the "interface" fallback.
-    const tried = new Set(); const shotUrls = new Set();
-    const rank = () => candidates.filter(c => (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
-    const addShot = async pageUrl => {
-      if (!pageUrl || shotUrls.has(pageUrl)) return; shotUrls.add(pageUrl);
-      const shot = await fetchScreenshot(pageUrl);
-      if (shot.error) report.push({screenshot:pageUrl,error:shot.error.message}); else candidates.push(...shot);
-    };
-    // Download and validate the best-ranked unused candidates, then let the judge choose among what actually loaded.
-    const download = async (limit = 8) => {
-      const downloaded = [];
-      for (const candidate of rank()) {
-        if (downloaded.length >= limit) break;
-        tried.add(keyOf(candidate));
-        const temp = path.join(directory,`${randomUUID()}.download`);
-        try {
-          let body;
-          if (candidate.localPath) body = await fs.readFile(candidate.localPath);
-          else {
-            const response = await getPublicWithRetry(candidate.url);
-            if (!/^image\/(png|jpeg|webp|gif)/i.test(response.type)) throw new Error(`NOT_IMAGE:${response.type}`);
-            body = response.body;
-          }
-          await fs.writeFile(temp,body);
-          const {stdout} = await exec('ffprobe',['-v','error','-show_entries','stream=width,height','-of','json',temp],{timeout:10000});
-          const dimensions = JSON.parse(stdout).streams[0];
-          const minimumDimension = candidate.kind === 'logo' ? 120 : 320;
-          if (!dimensions || Math.min(dimensions.width,dimensions.height)<minimumDimension || dimensions.width*dimensions.height>24000000) throw new Error('BAD_DIMENSIONS');
-          const thumb = `${temp}.jpg`;
-          await exec('ffmpeg',['-v','error','-y','-i',temp,'-frames:v','1','-vf','scale=768:768:force_original_aspect_ratio=decrease','-q:v','5',thumb],{timeout:15000});
-          downloaded.push({candidate, temp, thumb, body});
-        } catch (error) {report.push({url:candidate.url,error:error.message}); await fs.unlink(temp).catch(()=>{});}
-      }
-      return downloaded;
-    };
-    if (purpose !== 'identity') await addShot(urls[0]);
-    let downloaded = await download();
-    for (const pageUrl of urls) { if (downloaded.length) break; await addShot(pageUrl); downloaded = await download(); }
-    let chosen; let judgement = {index:null, reason:'nothing downloadable'};
-    if (downloaded.length) {
-      // A judge outage must never turn into a guessed picture: retry once, then leave the cue empty.
-      const context = {tool, topic, turnText:input.dialogue[Number(cue.turn_index)].text, phrase:cue.phrase, purpose, query};
-      try {judgement = await judgeVisuals(context, downloaded);}
-      catch (first) {
-        await sleep(3000);
+      // Site icons only depict identity. A rendered source page joins the pool as the "interface" fallback.
+      const tried = new Set();
+      const rank = () => candidates.filter(c => (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
+      const addShot = async pageUrl => {
+        if (!pageUrl || shotUrls.has(pageUrl)) return; shotUrls.add(pageUrl);
+        const shot = await fetchScreenshot(pageUrl);
+        if (shot.error) report.push({screenshot:pageUrl,error:shot.error.message}); else candidates.push(...shot);
+      };
+      // Download and validate the best-ranked unused candidates, then let the judge choose among what actually loaded.
+      const download = async (limit = 8) => {
+        const downloaded = [];
+        for (const candidate of rank()) {
+          if (downloaded.length >= limit) break;
+          tried.add(keyOf(candidate));
+          const temp = path.join(directory,`${randomUUID()}.download`);
+          try {
+            let body;
+            if (candidate.localPath) body = await fs.readFile(candidate.localPath);
+            else {
+              const response = await getPublicWithRetry(candidate.url);
+              if (!/^image\/(png|jpeg|webp|gif)/i.test(response.type)) throw new Error(`NOT_IMAGE:${response.type}`);
+              body = response.body;
+            }
+            await fs.writeFile(temp,body);
+            const {stdout} = await exec('ffprobe',['-v','error','-show_entries','stream=width,height','-of','json',temp],{timeout:10000});
+            const dimensions = JSON.parse(stdout).streams[0];
+            const minimumDimension = candidate.kind === 'logo' ? 120 : 320;
+            if (!dimensions || Math.min(dimensions.width,dimensions.height)<minimumDimension || dimensions.width*dimensions.height>24000000) throw new Error('BAD_DIMENSIONS');
+            const thumb = `${temp}.jpg`;
+            await exec('ffmpeg',['-v','error','-y','-i',temp,'-frames:v','1','-vf','scale=768:768:force_original_aspect_ratio=decrease','-q:v','5',thumb],{timeout:15000});
+            downloaded.push({candidate, temp, thumb, body});
+          } catch (error) {report.push({url:candidate.url,error:error.message}); await fs.unlink(temp).catch(()=>{});}
+        }
+        return downloaded;
+      };
+      if (purpose !== 'identity') await addShot(urls[0]);
+      let downloaded = await download();
+      for (const pageUrl of urls) { if (downloaded.length) break; await addShot(pageUrl); downloaded = await download(); }
+      let judgement = {index:null, reason:'nothing downloadable', suggestedQuery:null};
+      if (downloaded.length) {
+        // A judge outage must never turn into a guessed picture: retry once, then leave the cue empty.
+        const context = {tool, topic, turnText:input.dialogue[Number(cue.turn_index)].text, phrase:cue.phrase, purpose, query:attemptQuery};
         try {judgement = await judgeVisuals(context, downloaded);}
-        catch (error) {report.push({judge:query,error:error.message}); judgement = {index:null, reason:`judge unavailable: ${error.message}`};}
+        catch (first) {
+          await sleep(3000);
+          try {judgement = await judgeVisuals(context, downloaded);}
+          catch (error) {report.push({judge:attemptQuery,error:error.message}); judgement = {index:null, reason:`judge unavailable: ${error.message}`, suggestedQuery:null};}
+        }
       }
+      return {downloaded, judgement};
+    };
+
+    let query = cue.query || cue.phrase;
+    let downloaded = []; let judgement = {index:null, reason:'nothing downloadable', suggestedQuery:null};
+    const attempts = [];
+    for (let attempt = 1; attempt <= MAX_QUERY_ATTEMPTS; attempt++) {
+      ({downloaded, judgement} = await runAttempt(query));
+      attempts.push({attempt, query, considered:downloaded.length, judgement:judgement.reason, suggestedQuery:judgement.suggestedQuery});
+      if (judgement.index != null) break;
+      for (const item of downloaded) {await fs.unlink(item.temp).catch(()=>{}); await fs.unlink(item.thumb).catch(()=>{});}
+      downloaded = [];
+      if (!judgement.suggestedQuery || attempt === MAX_QUERY_ATTEMPTS) break;
+      query = judgement.suggestedQuery;
     }
+
     const pick = judgement.index != null ? downloaded[judgement.index] : null;
+    let chosen;
     if (pick) {
       const filename = createHash('sha256').update(pick.body).digest('hex').slice(0,20)+'.png';
       await exec('ffmpeg',['-v','error','-y','-i',pick.temp,'-frames:v','1','-vf','scale=1200:1200:force_original_aspect_ratio=decrease',path.join(directory,filename)],{timeout:15000});
@@ -368,7 +395,7 @@ export async function discoverVisuals(input) {
       visuals.push(chosen);
     }
     for (const item of downloaded) {await fs.unlink(item.temp).catch(()=>{}); await fs.unlink(item.thumb).catch(()=>{});}
-    report.push({cue,status:chosen?'downloaded':'no_image',considered:downloaded.map(item => item.candidate.assetId ?? item.candidate.url),judgement:judgement.reason});
+    report.push({cue,status:chosen?'downloaded':'no_image',attempts,finalQuery:query,considered:downloaded.map(item => item.candidate.assetId ?? item.candidate.url),judgement:judgement.reason});
   }
   for (const shot of await Promise.all([...screenshots.values()])) if (!shot.error) for (const slice of shot) await fs.unlink(slice.localPath).catch(()=>{});
   let validation; let validationError;
