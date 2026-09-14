@@ -60,6 +60,11 @@ test('Claude is the primary researcher and local Qwen is the fallback', () => {
   assert.match(JSON.stringify(claudeNode.parameters.headerParameters), /anthropic-version/);
   assert.match(claudeNode.parameters.jsonBody, /ANTHROPIC_MODEL/);
   assert.match(claudeNode.parameters.jsonBody, /claude-haiku-4-5-20251001/);
+  // The 5-candidate research schema (full evidence + SEO brief per candidate) genuinely needs
+  // ~8-9k output tokens; a live run against claude-haiku-4-5-20251001 confirmed 4096 truncates
+  // mid-JSON (stop_reason: max_tokens) and 8192 still does. Keep real headroom above that.
+  const [, defaultMaxTokens] = claudeNode.parameters.jsonBody.match(/ANTHROPIC_MAX_TOKENS \|\| (\d+)/) ?? [];
+  assert.ok(Number(defaultMaxTokens) >= 16000, `default max_tokens (${defaultMaxTokens}) is too low for the 5-candidate research schema`);
   assert.equal(claudeNode.parameters.options.neverError, true);
   assert.equal(claudeNode.parameters.options.response.response.fullResponse, true);
 

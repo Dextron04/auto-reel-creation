@@ -251,7 +251,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 4096), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }] } }}",
         "options": {
           "response": {
             "response": {
@@ -341,7 +341,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 4096), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }] } }}",
         "options": {
           "response": {
             "response": {
