@@ -262,7 +262,8 @@ test('recent topics are fetched before the research prompt is built, without blo
 test('research workflow includes a general software engineering source alongside AI vendor feeds', () => {
   const hn = nodeById.get('rss-hackernews');
   assert.ok(hn, 'missing Hacker News source');
-  assert.equal(hn.parameters.url, 'https://hnrss.org/frontpage');
+  assert.match(hn.parameters.url, /^https:\/\/hnrss\.org\/frontpage/);
+  assert.match(hn.parameters.url, /points=1/, 'must request real HN points for engagement scoring');
   const merge = nodeById.get('merge-research-feeds');
   assert.equal(merge.parameters.numberInputs, 11, 'merge must accept all 11 feeds');
 });
@@ -335,7 +336,8 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.equal(result[0].json.seo_brief.primary_keyword, 'agent kit for developers');
   assert.match(result[0].json.prompt, /exactly six/i);
   assert.match(result[0].json.prompt, /"turns"/);
-  assert.match(result[0].json.prompt, /Peter introduces/i);
+  assert.match(result[0].json.prompt, /ARGUMENT/);
+  assert.match(result[0].json.prompt, /Stewie directly disagrees/i);
   assert.match(result[0].json.prompt, /Stewie/i);
   assert.match(result[0].json.prompt, /8–12 distinct visual cues/);
   assert.match(result[0].json.prompt, /Claude Vision will reject irrelevant candidates/);
