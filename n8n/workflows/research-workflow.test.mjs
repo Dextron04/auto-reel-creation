@@ -474,6 +474,15 @@ test('render prep fails fast when a turn has no visual cue at all, before any im
   assert.throws(run, /DIALOGUE_CUES_MISSING_TURNS:5_OF_6/);
 });
 
+test('production editorial gate runs between visual collection and rendering', () => {
+  const gate = nodeById.get('production-editorial-gate');
+  assert.ok(gate, 'missing production editorial gate');
+  assert.equal(gate.name, 'Validate Production Editorial Package');
+  assert.equal(gate.parameters.url, 'http://renderer:3001/v1/editorial/production-gate');
+  assert.equal(workflow.connections['Find and Download Script Images'].main[0][0].node, 'Validate Production Editorial Package');
+  assert.equal(workflow.connections['Validate Production Editorial Package'].main[0][0].node, 'Render 9:16 Reel with Subtitles');
+});
+
 test('dialogue voice generation routes each turn to the matching configured voice', () => {
   const ttsNode = nodeById.get('tts-dialogue-turn');
   const saveNode = nodeById.get('save-dialogue-turn');

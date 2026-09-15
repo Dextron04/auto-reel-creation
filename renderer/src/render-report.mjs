@@ -10,5 +10,6 @@ export function createRenderReport(request, outputLocation) {
     visualCount: request.visuals?.length ?? 0,
     visualPaths: (request.visuals ?? []).map(visual => visual.imagePath),
     visualCoverageSeconds: (request.visuals ?? []).reduce((sum, visual) => sum + (visual.end - visual.start), 0),
+    sequenceReview: request.sequenceReview ?? null,
   };
 }

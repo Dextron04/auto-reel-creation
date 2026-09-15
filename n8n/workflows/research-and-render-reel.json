@@ -889,6 +889,23 @@
           }
         }
       }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/editorial/production-gate",
+        "sendHeaders": true,
+        "headerParameters": {"parameters": [{"name": "Content-Type", "value": "application/json"}]},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "options": {"response": {"response": {"responseFormat": "json"}}, "timeout": 900000}
+      },
+      "id": "production-editorial-gate",
+      "name": "Validate Production Editorial Package",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3120, 0]
     }
   ],
   "connections": {
@@ -1320,6 +1337,17 @@
       ]
     },
     "Find and Download Script Images": {
+      "main": [
+        [
+          {
+            "node": "Validate Production Editorial Package",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Production Editorial Package": {
       "main": [
         [
           {

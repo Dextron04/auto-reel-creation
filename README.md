@@ -23,6 +23,8 @@ The operations dashboard is available at http://localhost:4000. It shows service
 
 The renderer health endpoint is http://localhost:3001/health. Platform publishing is intentionally not included yet.
 
+Visuals may optionally declare a `scene_type` (`screenshot-focus`, `terminal-demo`, `connected-workflow`, or `metric-counter`). The renderer uses a deterministic motion treatment for those types and falls back to the existing static-image treatment for unknown values. Flick is not installed as a runtime dependency; its MIT-licensed scene patterns are adapted as local Remotion components so scheduled n8n runs remain unattended. The production workflow also calls `/v1/editorial/production-gate` after visual collection and before rendering. That gate preserves the render payload, runs an Anthropic multimodal sequence review over the selected assets, and rejects incomplete, unjudged, or dialogue-misaligned packages (or fails closed when the review service is unavailable).
+
 ## Research workflow
 
 Import `n8n/workflows/research-and-render-reel.json` into n8n. The research trigger is configured for 09:00 and 17:00 in the n8n timezone. Before activating it, provide `ANTHROPIC_API_KEY`, `OLLAMA_CF_ACCESS_CLIENT_ID`, and `OLLAMA_CF_ACCESS_CLIENT_SECRET` to the n8n container environment, or replace the header expressions with n8n credentials.

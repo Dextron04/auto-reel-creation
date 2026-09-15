@@ -1,6 +1,7 @@
 import React from 'react';
 import {AbsoluteFill, Audio, OffthreadVideo, Img, Sequence, interpolate, useCurrentFrame, useVideoConfig} from 'remotion';
 import {getActiveWordColor} from './dialogue.mjs';
+import {sceneMotion} from './scene-registry.mjs';
 
 function Caption({caption}) {
   const frame = useCurrentFrame();
@@ -20,9 +21,9 @@ function VisualBeat({visual}) {
   const edge = Math.min(6,duration/3);
   return <div style={{position:'absolute',left:110,right:110,top:140,height:650,display:'flex',justifyContent:'center',alignItems:'center',
     opacity:interpolate(frame,[0,edge,duration-edge,duration],[0,1,1,0],{extrapolateLeft:'clamp',extrapolateRight:'clamp'}),
-    scale:interpolate(frame,[0,edge,duration],[0.96,1,1.035],{extrapolateLeft:'clamp',extrapolateRight:'clamp'}),
+    ...sceneMotion(visual, frame, fps),
     translate:`0px ${interpolate(frame,[0,edge],[18,0],{extrapolateRight:'clamp'})}px`}}>
-    <Img src={visual.imagePath} style={{maxWidth:'100%',maxHeight:'100%',width:visual.kind==='logo'?420:undefined,objectFit:'contain',borderRadius:16,filter:'drop-shadow(0 12px 18px rgba(0,0,0,.4))'}} />
+    <Img src={visual.imagePath} style={{maxWidth:'100%',maxHeight:'100%',width:visual.kind==='logo'?420:undefined,objectFit:'contain',borderRadius:16}} />
   </div>;
 }
 

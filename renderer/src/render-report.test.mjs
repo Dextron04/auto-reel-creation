@@ -11,6 +11,7 @@ test('render report exposes timing and overlay coverage for end-to-end verificat
     characterSegments: [{speaker: 'peter'}, {speaker: 'stewie'}],
     visuals: [{imagePath: '/media/one.png', start: 0, end: 20}, {imagePath: '/media/two.png', start: 20, end: 52.72}],
     audioSegments: [{start: 0, end: 52.72, playbackRate: 1}],
+    sequenceReview: {passed: true, scores: {relevance: 4}},
   }, '/output/reel-test.mp4');
 
   assert.deepEqual(report, {
@@ -24,5 +25,6 @@ test('render report exposes timing and overlay coverage for end-to-end verificat
     visualCount: 2,
     visualPaths: ['/media/one.png', '/media/two.png'],
     visualCoverageSeconds: 52.72,
+    sequenceReview: {passed: true, scores: {relevance: 4}},
   });
 });
