@@ -10,7 +10,7 @@ import {discoverTrends} from './trend-discovery.mjs';
 import {buildStoryboard, scoreVisual, approveStoryboard} from './visual-preflight.mjs';
 import {rankConcepts} from './editorial.mjs';
 import {writeEditorialRecord} from './editorial-record.mjs';
-import {validateWithSequenceRetry, reviewSequenceWithVision} from './production-gate.mjs';
+import {validateProductionPackage} from './production-gate.mjs';
 
 const app = express();
 const PUBLIC_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -27,9 +27,9 @@ app.post('/v1/render', async (req, res) => {
   try { res.status(202).json(await renderReel(req.body)); }
   catch (error) { res.status(400).json({error: error.message}); }
 });
-app.post('/v1/editorial/production-gate', async (req, res) => {
-  const result = await validateWithSequenceRetry(req.body ?? {}, {reviewSequence:reviewSequenceWithVision, rediscover:discoverVisuals});
-  res.status(result.ok ? 200 : 400).json(result);
+app.post('/v1/editorial/production-gate', (req, res) => {
+  const result = validateProductionPackage(req.body ?? {});
+  res.status(result.ok ? 200 : 400).json({...req.body, ...result});
 });
 app.post('/v1/publish/instagram', async (req, res) => {
   try { res.json(await publishToInstagram(req.body)); }
