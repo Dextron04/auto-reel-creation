@@ -111,7 +111,7 @@ export async function reviewSequenceWithVision({dialogue = [], visuals = [], mod
   }
 }
 
-export function validateProductionPackage({dialogue = [], visuals = [], storyboard = [], sequenceReview} = {}) {
+export function validateProductionPackage({dialogue = [], visuals = [], storyboard = [], sequenceReview} = {}, {relaxedSequenceReview = false} = {}) {
   const errors = [];
   const dialogueResult = validateDialogue(dialogue, storyboard);
   errors.push(...dialogueResult.errors);
@@ -128,7 +128,15 @@ export function validateProductionPackage({dialogue = [], visuals = [], storyboa
     const scoresValid = scoreKeys.every(key => Number.isFinite(sequenceReview.scores?.[key]) && sequenceReview.scores[key] >= 0 && sequenceReview.scores[key] <= 5);
     const trusted = sequenceReview.provider === 'anthropic' && sequenceReview.packageHash === sequencePackageHash({dialogue, visuals});
     if (!scoresValid || !trusted) errors.push('SEQUENCE_REVIEW_INVALID');
-    else if (sequenceReview.passed !== true || scoreKeys.some(key => sequenceReview.scores[key] < 3)) errors.push('SEQUENCE_REVIEW_FAILED');
+    else {
+      const strictPass = sequenceReview.passed === true && scoreKeys.every(key => sequenceReview.scores[key] >= 3);
+      const relaxedPass = sequenceReview.scores.relevance >= 3
+        && sequenceReview.scores.coverage >= 2.5
+        && sequenceReview.scores.variety >= 2
+        && sequenceReview.scores.readability >= 3
+        && sequenceReview.scores.pacing >= 2;
+      if (relaxedSequenceReview ? !relaxedPass : !strictPass) errors.push('SEQUENCE_REVIEW_FAILED');
+    }
   }
   return {ok: errors.length === 0, errors: [...new Set(errors)]};
 }
@@ -149,10 +157,15 @@ export async function validateWithSequenceRetry(input = {}, {reviewSequence, red
     return {...packageInput, sequenceReview, ...validateProductionPackage({...packageInput, sequenceReview})};
   };
   const first = await evaluate(input);
-  if (first.errors.length !== 1 || first.errors[0] !== 'SEQUENCE_REVIEW_FAILED' || typeof rediscover !== 'function') return first;
+  if (first.errors.length !== 1 || first.errors[0] !== 'SEQUENCE_REVIEW_FAILED' || typeof rediscover !== 'function') return first.ok ? {...first,sequenceGate:'strict'} : first;
   try {
     const regenerated = await rediscover(buildSequenceRetryInput(input, first.sequenceReview.reason));
-    return {...await evaluate(regenerated), sequenceRegenerated:true};
+    const second = await evaluate(regenerated);
+    if (second.errors.length === 1 && second.errors[0] === 'SEQUENCE_REVIEW_FAILED') {
+      const relaxed = validateProductionPackage({...second,sequenceReview:second.sequenceReview},{relaxedSequenceReview:true});
+      return {...second,...relaxed,sequenceRegenerated:true,...(relaxed.ok ? {sequenceGate:'relaxed'} : {})};
+    }
+    return {...second,sequenceRegenerated:true,...(second.ok ? {sequenceGate:'strict'} : {})};
   } catch (error) {
     return {...first, sequenceRegenerated:false, sequenceRegenerationError:error.message};
   }

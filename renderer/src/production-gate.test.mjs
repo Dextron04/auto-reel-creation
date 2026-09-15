@@ -58,6 +58,28 @@ test('a sequence-only failure rediscovers the complete visual package once', asy
   assert.equal(result.visuals[0].assetId,'replacement-0');
 });
 
+test('a regenerated sequence can pass the bounded relaxed gate', async () => {
+  const replacementVisuals = goodVisuals.map((visual,index)=>({...visual,assetId:`relaxed-${index}`,assetUrl:`https://example.test/relaxed-${index}.png`}));
+  const result = await validateWithSequenceRetry(
+    {dialogue:goodDialogue,visuals:goodVisuals},
+    {
+      reviewSequence:async packageInput => packageInput.visuals === goodVisuals
+        ? {...reviewFor(),passed:false,scores:{relevance:2,coverage:1,variety:2,readability:1,pacing:1}}
+        : {...reviewFor(goodDialogue,replacementVisuals),passed:false,scores:{relevance:3,coverage:2.5,variety:2,readability:3,pacing:2}},
+      rediscover:async packageInput=>({...packageInput,visuals:replacementVisuals}),
+    },
+  );
+  assert.equal(result.ok,true);
+  assert.equal(result.sequenceGate,'relaxed');
+});
+
+test('the relaxed gate still rejects irrelevant or unreadable regenerated sequences', () => {
+  const weakReview={...reviewFor(),passed:false,scores:{relevance:2.5,coverage:3,variety:3,readability:2.5,pacing:3}};
+  const result=validateProductionPackage({dialogue:goodDialogue,visuals:goodVisuals,sequenceReview:weakReview},{relaxedSequenceReview:true});
+  assert.equal(result.ok,false);
+  assert.ok(result.errors.includes('SEQUENCE_REVIEW_FAILED'));
+});
+
 test('sequence retry keeps at most two stock cues and converts the rest to cited product shots', () => {
   const visualCues = Array.from({length:8},(_,index)=>({turn_index:index%6, phrase:`turn ${index%6}`, query:`query ${index}`, kind:index%2?'stock':'screenshot', visual_purpose:index%2?'reaction':'interface', source_url:'https://source.example/article'}));
   const retry = buildSequenceRetryInput({dialogue:goodDialogue,visualCues,research:{recommended_topic:{tool_name:'Agentwire',claims:[{source_url:'https://source.example/article'}]}}},'too many generic stock images');
