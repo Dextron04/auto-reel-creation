@@ -11,6 +11,7 @@ import {promisify} from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
 import {MEDIA_ROOT, OUTPUT_ROOT} from './validation.mjs';
 import {pruneGeneratedMedia} from './retention.mjs';
+import {phraseAnchorsTurn} from './visuals.mjs';
 
 export {pruneGeneratedMedia, withActiveOutput} from './retention.mjs';
 
@@ -142,6 +143,16 @@ export function readmeImages(markdown, repoUrl, query) {
     } catch {}
   }
   return candidates;
+}
+
+// The dialogue-writing model occasionally assigns a cue's phrase to the wrong turn_index — the
+// phrase is a real line, just spoken in a different turn than declared. Retarget the cue to
+// wherever it actually anchors instead of failing the whole package over a misassigned index;
+// a phrase that anchors nowhere is left alone and correctly fails validation as invalid.
+export function resolveCueTurn(cue, dialogue = []) {
+  if (phraseAnchorsTurn(dialogue[Number(cue.turn_index)]?.text, cue.phrase)) return cue;
+  const corrected = dialogue.findIndex(turn => phraseAnchorsTurn(turn?.text, cue.phrase));
+  return corrected === -1 ? cue : {...cue, turn_index: corrected};
 }
 
 export function isUsableVisualCue(cue, dialogue) {
@@ -374,8 +385,9 @@ export async function discoverVisuals(input) {
   };
   const topic = String(input.research?.recommended_topic?.one_line_value || input.focus || '');
   const MAX_QUERY_ATTEMPTS = 5;
-  for (const cue of cues) {
-    if (!isUsableVisualCue(cue,input.dialogue)) {report.push({cue,status:'invalid_cue'}); continue;}
+  for (const rawCue of cues) {
+    if (!isUsableVisualCue(rawCue,input.dialogue)) {report.push({cue:rawCue,status:'invalid_cue'}); continue;}
+    const cue = resolveCueTurn(rawCue, input.dialogue);
     const purpose = PURPOSES.includes(cue.visual_purpose) ? cue.visual_purpose : 'interface';
     const urls = [...new Set([cue.source_url,...sources].filter(Boolean))].slice(0,3);
     const shotUrls = new Set(); // shared across attempts for this cue: a page screenshot doesn't change with the query

@@ -8,15 +8,19 @@ export function isSafeVisualUrl(value) {
 }
 
 const words = text => String(text).toLowerCase().match(/[a-z0-9]+/g) || [];
+const stem = word => word.replace(/(es|s)$/, '');
+const wordsMatch = (a, b) => a === b || stem(a) === stem(b);
 
 // Dialogue often adds pauses ("myc just... stops") a phrase-extraction step strips, so this
 // matches on the word sequence rather than raw text, same tolerance buildVisualTimeline uses
-// below to anchor a cue in the captions.
+// below to anchor a cue in the captions. Also tolerates trivial verb/plural drift ("make" cue
+// phrase vs "makes" actually spoken) via a light suffix-insensitive comparison per word — real
+// content mismatches (a phrase from a different turn entirely) still fail every alignment.
 export function phraseAnchorsTurn(text, phrase) {
   const turnWords = words(text);
   const phraseWords = words(phrase);
   if (!phraseWords.length) return false;
-  return turnWords.some((_, i) => phraseWords.every((word, j) => turnWords[i + j] === word));
+  return turnWords.some((_, i) => phraseWords.every((word, j) => turnWords[i + j] !== undefined && wordsMatch(turnWords[i + j], word)));
 }
 
 // Each visual starts at its spoken phrase (or its turn) and stays on screen until the next cue, so the reel is never blank.
