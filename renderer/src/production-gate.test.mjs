@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {validateProductionPackage, validateWithSequenceRetry, buildSequenceRetryInput, sequenceReviewPrompt, parseSequenceReview, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
+import {validateProductionPackage, validateWithSequenceRetry, buildSequenceRetryInput, sequenceReviewPrompt, parseSequenceReview, parseSequenceReviewResponse, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
 
 const goodDialogue = Array.from({length: 6}, (_, i) => ({
   speaker: i % 2 ? 'stewie' : 'peter',
@@ -98,6 +98,13 @@ test('sequence review parser accepts bounded multimodal scores', () => {
   const review = parseSequenceReview(JSON.stringify({relevance: 4, coverage: 5, variety: 3, readability: 4, pacing: 4, reason: 'clear'}));
   assert.equal(review.passed, true);
   assert.equal(review.scores.coverage, 5);
+});
+
+test('sequence review reads forced structured tool output', () => {
+  const review = parseSequenceReviewResponse({content:[{type:'tool_use',name:'submit_sequence_review',input:{relevance:4,coverage:4,variety:3,readability:3,pacing:4,reason:'coherent sequence'}}]});
+  assert.equal(review.passed,true);
+  assert.equal(review.scores.readability,3);
+  assert.equal(review.reason,'coherent sequence');
 });
 
 test('sequence review parser fails closed on malformed or weak output', () => {
