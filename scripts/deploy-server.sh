@@ -24,7 +24,14 @@ echo "Running deployment regression suite..."
 node --test scripts/update-production-checkout.test.mjs
 
 echo "Rebuilding and restarting containers..."
-docker compose up -d --build --remove-orphans
+# docker compose's in-place recreate (stop -> rename to a temp id-prefixed name -> create ->
+# remove old) has been hitting a container-name conflict against itself on this host's colima
+# daemon, failing the whole deploy before it ever reaches the health checks below. Building
+# first and then explicitly stopping+removing the services we're about to recreate sidesteps
+# that rename step entirely: `up` only has to create fresh containers, never rename a running one.
+docker compose build renderer dashboard
+docker compose rm -sf renderer dashboard
+docker compose up -d --remove-orphans
 
 check() {
   name=$1
