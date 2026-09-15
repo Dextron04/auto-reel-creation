@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {validateProductionPackage, parseSequenceReview, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
+import {validateProductionPackage, validateWithSequenceRetry, parseSequenceReview, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
 
 const goodDialogue = Array.from({length: 6}, (_, i) => ({
   speaker: i % 2 ? 'stewie' : 'peter',
@@ -40,6 +40,22 @@ test('production gate rejects a failed sequence review', () => {
   const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals, sequenceReview: {...reviewFor(), passed: false}});
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes('SEQUENCE_REVIEW_FAILED'));
+});
+
+test('a sequence-only failure rediscovers the complete visual package once', async () => {
+  const replacementVisuals = goodVisuals.map((visual, index) => ({...visual, assetId:`replacement-${index}`, assetUrl:`https://example.test/replacement-${index}.png`}));
+  const result = await validateWithSequenceRetry(
+    {dialogue:goodDialogue, visuals:goodVisuals},
+    {
+      reviewSequence: async packageInput => packageInput.visuals === goodVisuals
+        ? {...reviewFor(goodDialogue, goodVisuals), passed:false, scores:{relevance:2, coverage:1, variety:2, readability:1, pacing:1}}
+        : reviewFor(goodDialogue, replacementVisuals),
+      rediscover: async packageInput => ({...packageInput, visuals:replacementVisuals}),
+    },
+  );
+  assert.equal(result.ok,true);
+  assert.equal(result.sequenceRegenerated,true);
+  assert.equal(result.visuals[0].assetId,'replacement-0');
 });
 
 test('production gate rejects stale or self-attested reviews', () => {

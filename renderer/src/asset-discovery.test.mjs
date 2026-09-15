@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {pageImages,publicAddress,readmeImages,assetKey,keyOf,purposeScore,isUsableVisualCue,SCREENSHOT_SLICES,validateVisualSelection} from './asset-discovery.mjs';
+import {pageImages,publicAddress,readmeImages,assetKey,keyOf,purposeScore,isUsableVisualCue,SCREENSHOT_SLICES,validateVisualSelection,visualSearchQuery,candidateMatchesCueSource,sourcePageFallbackAllowed} from './asset-discovery.mjs';
 import {buildVisualTimeline} from './visuals.mjs';
 test('extracts relevant page images and resolves relative sources',()=>{
   const result=pageImages('<meta property="og:image" content="/preview.png"><img src="/workflow.png" alt="Agent workflow"><img src="/ad.png" alt="Buy shoes">','https://example.com/docs','Agent workflow');
@@ -74,6 +74,25 @@ test('a rejection carries the judge\'s suggested follow-up search query',()=>{
 test('judge prompt carries the spoken line, phrase and purpose',()=>{
   const prompt=judgePrompt({tool:'Agents API',topic:'managed agent loops',turnText:'It handles retries for you.',phrase:'handles retries',purpose:'mechanism',query:'retry diagram'});
   for(const piece of ['Agents API','It handles retries for you.','handles retries','diagram or code','different product than Agents API','"best"']) assert.match(prompt,new RegExp(piece.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+});
+test('stock cues search for the requested scene instead of the product interface',()=>{
+  assert.equal(visualSearchQuery('Agentwire',{kind:'stock'},'developer confused at laptop'),'developer confused at laptop');
+  assert.equal(visualSearchQuery('Agentwire',{kind:'screenshot'},'filter controls'),'Agentwire filter controls');
+  assert.equal(sourcePageFallbackAllowed({kind:'stock'}),false);
+  assert.equal(sourcePageFallbackAllowed({kind:'screenshot'}),true);
+});
+test('stock cue judging allows people while rejecting product dashboards',()=>{
+  const prompt=judgePrompt({tool:'Agentwire',topic:'tool discovery',turnText:'Why another index?',phrase:'Why another index',purpose:'reaction',kind:'stock',query:'developer confused'});
+  assert.match(prompt,/stock photo or editorial illustration/i);
+  assert.match(prompt,/people are acceptable/i);
+  assert.match(prompt,/reject product dashboards/i);
+});
+test('product screenshots must come from the cited source page',()=>{
+  const cue={kind:'screenshot',source_url:'https://dev.to/compoundlabs/agentwire-review'};
+  const sources=['https://dev.to/compoundlabs/agentwire-review'];
+  assert.equal(candidateMatchesCueSource({sourceUrl:'https://dev.to/compoundlabs/agentwire-review'},cue,sources),true);
+  assert.equal(candidateMatchesCueSource({sourceUrl:'https://agentsview.io/usage'},cue,sources),false);
+  assert.equal(candidateMatchesCueSource({sourceUrl:'https://learn.microsoft.com/model-benchmarks'},cue,sources),false);
 });
 import {parseBraveResults,parseSearxngResults} from './asset-discovery.mjs';
 test('Brave image results map onto the same candidate shape',()=>{

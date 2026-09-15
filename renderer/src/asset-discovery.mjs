@@ -148,7 +148,7 @@ export function isUsableVisualCue(cue, dialogue) {
   return Boolean(dialogue?.[Number(cue?.turn_index)] && String(cue?.phrase || '').trim());
 }
 
-const PURPOSES = ['identity','interface','mechanism','outcome'];
+const PURPOSES = ['identity','interface','mechanism','outcome','reaction','context'];
 export const keyOf = candidate => candidate.assetId ?? assetKey(candidate.url);
 // assetKey() strips URL fragments as CDN noise, but screenshotPage() deliberately uses
 // #view0/#view1/#view2 as its assetId to keep distinct crops of the same page distinct
@@ -169,7 +169,29 @@ export function purposeScore(candidate, purpose) {
   if (purpose === 'identity') return (candidate.kind === 'logo' ? 12 : 0) + (candidate.social ? 4 : 0);
   if (purpose === 'interface') return /screenshot|dashboard|interface|editor|terminal|console|ui|demo/.test(description) ? 12 : (candidate.social ? -3 : 0);
   if (purpose === 'mechanism') return /diagram|architecture|workflow|pipeline|flow|agent|sandbox|readme/.test(description) ? 12 : (candidate.social ? -3 : 0);
+  if (purpose === 'reaction') return /developer|person|people|thinking|confused|skeptical|smile|reaction/.test(description) ? 12 : 0;
+  if (purpose === 'context') return /developer|computer|laptop|browser|tabs|workspace|context/.test(description) ? 12 : 0;
   return /result|output|benchmark|performance|comparison|chart|readme/.test(description) ? 12 : (candidate.social ? -3 : 0);
+}
+
+export function visualSearchQuery(tool, cue, query) {
+  return cue?.kind === 'stock' ? String(query) : `${tool} ${query}`;
+}
+
+export const sourcePageFallbackAllowed = cue => cue?.kind !== 'stock';
+
+const canonicalSource = value => {
+  try {
+    const url = new URL(value);
+    return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
+  } catch { return null; }
+};
+
+export function candidateMatchesCueSource(candidate, cue, sourceUrls = []) {
+  if (cue?.kind !== 'screenshot') return true;
+  const allowed = new Set([cue?.source_url, ...sourceUrls].map(canonicalSource).filter(Boolean));
+  if (!allowed.size) return true;
+  return allowed.has(canonicalSource(candidate?.sourceUrl));
 }
 
 
@@ -267,9 +289,12 @@ export function parseJudgement(text, count) {
     };
   } catch {return {index: null, reason: 'unparseable judgement', suggestedQuery: null};}
 }
-export function judgePrompt({tool, topic, turnText, phrase, purpose, query}) {
-  const purposes = {identity:'the tool\'s logo or brand mark', interface:'the tool\'s actual user interface, editor, terminal or dashboard', mechanism:'a diagram or code showing how it works', outcome:'a result, benchmark, chart, bill or comparison'};
-  return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}. If none clearly fit, answer 0 and suggest a more specific web image search query that would actually find a picture proving this exact line — name the concrete thing to search for (a specific UI panel, a specific metric or chart, a specific diagram), not a rephrase of the line itself.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>", "suggested_query": "<only when best is 0>"}`;
+export function judgePrompt({tool, topic, turnText, phrase, purpose, kind, query}) {
+  const purposes = {identity:'the tool\'s logo or brand mark', interface:'the tool\'s actual user interface, editor, terminal or dashboard', mechanism:'a diagram or code showing how it works', outcome:'a result, benchmark, chart, bill or comparison', reaction:'a human reaction that supports the dialogue beat', context:'an editorial scene that establishes the situation'};
+  const selectionRule = kind === 'stock'
+    ? 'This cue specifically calls for a stock photo or editorial illustration. People are acceptable when their expression or situation clearly matches the line. Reject product dashboards, logos, and unrelated software interfaces.'
+    : `Reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}.`;
+  return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: ${selectionRule} If none clearly fit, answer 0 and suggest a more specific web image search query that would actually find a picture proving this exact line — name the concrete thing to search for (a specific UI panel, a specific metric or chart, a specific diagram), not a rephrase of the line itself.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>", "suggested_query": "<only when best is 0>"}`;
 }
 async function judgeVisuals(context, downloaded) {
   if (!anthropic) return {index:null, reason:'vision judge unavailable', suggestedQuery:null};
@@ -321,21 +346,24 @@ export async function discoverVisuals(input) {
     // on the first miss.
     const runAttempt = async (attemptQuery) => {
       const candidates = [];
-      try {candidates.push(...await searchImages(purpose === 'identity' ? `${tool} logo` : `${tool} ${attemptQuery}`));} catch (error) {report.push({search:attemptQuery,error:error.message});}
-      try {candidates.push(...await githubReadmeCandidates(tool, attemptQuery, fetchPage));} catch (error) {report.push({github:tool,error:error.message});}
-      for (const url of urls) {
-        const response = await fetchPage(url);
-        if (response.error) {report.push({sourceUrl:url,error:response.error.message}); continue;}
-        // Social cards from other claim pages describe other articles, so only the cue's own page may contribute one.
-        if (response.type.includes('text/html')) candidates.push(...pageImages(response.body.toString(),response.url,attemptQuery).filter(c => url === urls[0] || !c.social));
-        if (/github\.com\/[^/]+\/[^/]+/.test(url)) {
-          const readme = await fetchPage(`https://raw.githubusercontent.com/${url.match(/github\.com\/([^/]+\/[^/?#]+)/)[1].replace(/\.git$/,'')}/HEAD/README.md`);
-          if (!readme.error) candidates.push(...readmeImages(readme.body.toString(), url, attemptQuery));
+      const searchQuery = purpose === 'identity' ? `${tool} logo` : visualSearchQuery(tool, cue, attemptQuery);
+      try {candidates.push(...await searchImages(searchQuery));} catch (error) {report.push({search:attemptQuery,error:error.message});}
+      if (sourcePageFallbackAllowed(cue)) {
+        try {candidates.push(...await githubReadmeCandidates(tool, attemptQuery, fetchPage));} catch (error) {report.push({github:tool,error:error.message});}
+        for (const url of urls) {
+          const response = await fetchPage(url);
+          if (response.error) {report.push({sourceUrl:url,error:response.error.message}); continue;}
+          // Social cards from other claim pages describe other articles, so only the cue's own page may contribute one.
+          if (response.type.includes('text/html')) candidates.push(...pageImages(response.body.toString(),response.url,attemptQuery).filter(c => url === urls[0] || !c.social));
+          if (/github\.com\/[^/]+\/[^/]+/.test(url)) {
+            const readme = await fetchPage(`https://raw.githubusercontent.com/${url.match(/github\.com\/([^/]+\/[^/?#]+)/)[1].replace(/\.git$/,'')}/HEAD/README.md`);
+            if (!readme.error) candidates.push(...readmeImages(readme.body.toString(), url, attemptQuery));
+          }
         }
       }
       // Site icons only depict identity. A rendered source page joins the pool as the "interface" fallback.
       const tried = new Set();
-      const rank = () => candidates.filter(c => (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
+      const rank = () => candidates.filter(c => candidateMatchesCueSource(c, cue, urls) && (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
       const addShot = async pageUrl => {
         if (!pageUrl || shotUrls.has(pageUrl)) return; shotUrls.add(pageUrl);
         const shot = await fetchScreenshot(pageUrl);
@@ -368,13 +396,13 @@ export async function discoverVisuals(input) {
         }
         return downloaded;
       };
-      if (purpose !== 'identity') await addShot(urls[0]);
+      if (purpose !== 'identity' && sourcePageFallbackAllowed(cue)) await addShot(urls[0]);
       let downloaded = await download();
-      for (const pageUrl of urls) { if (downloaded.length) break; await addShot(pageUrl); downloaded = await download(); }
+      if (sourcePageFallbackAllowed(cue)) for (const pageUrl of urls) { if (downloaded.length) break; await addShot(pageUrl); downloaded = await download(); }
       let judgement = {index:null, reason:'nothing downloadable', suggestedQuery:null};
       if (downloaded.length) {
         // A judge outage must never turn into a guessed picture: retry once, then leave the cue empty.
-        const context = {tool, topic, turnText:input.dialogue[Number(cue.turn_index)].text, phrase:cue.phrase, purpose, query:attemptQuery};
+        const context = {tool, topic, turnText:input.dialogue[Number(cue.turn_index)].text, phrase:cue.phrase, purpose, kind:cue.kind, query:attemptQuery};
         try {judgement = await judgeVisuals(context, downloaded);}
         catch (first) {
           await sleep(3000);
@@ -404,7 +432,7 @@ export async function discoverVisuals(input) {
       const filename = createHash('sha256').update(pick.body).digest('hex').slice(0,20)+'.png';
       await exec('ffmpeg',['-v','error','-y','-i',pick.temp,'-frames:v','1','-vf','scale=1200:1200:force_original_aspect_ratio=decrease',path.join(directory,filename)],{timeout:15000});
       used.add(keyOf(pick.candidate));
-      chosen = {imagePath:`/media/visuals/${run}/${filename}`,title:query,kind:cue.kind === 'logo'?'logo':pick.candidate.kind,visualPurpose:purpose,startTurn:Number(cue.turn_index),phrase:cue.phrase,sourceUrl:pick.candidate.sourceUrl,assetUrl:pick.candidate.assetId ?? pick.candidate.url,judgement:judgement.reason,attribution:pick.candidate.attribution || null};
+      chosen = {imagePath:`/media/visuals/${run}/${filename}`,title:query,kind:cue.kind === 'logo'?'logo':cue.kind === 'stock'?'stock':pick.candidate.kind,visualPurpose:purpose,startTurn:Number(cue.turn_index),phrase:cue.phrase,sourceUrl:pick.candidate.sourceUrl,assetUrl:pick.candidate.assetId ?? pick.candidate.url,judgement:judgement.reason,attribution:pick.candidate.attribution || null};
       visuals.push(chosen);
     }
     for (const item of downloaded) {await fs.unlink(item.temp).catch(()=>{}); await fs.unlink(item.thumb).catch(()=>{});}

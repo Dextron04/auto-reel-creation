@@ -100,3 +100,20 @@ export function validateProductionPackage({dialogue = [], visuals = [], storyboa
   }
   return {ok: errors.length === 0, errors: [...new Set(errors)]};
 }
+
+export async function validateWithSequenceRetry(input = {}, {reviewSequence, rediscover} = {}) {
+  const evaluate = async packageInput => {
+    let sequenceReview;
+    try { sequenceReview = await reviewSequence(packageInput); }
+    catch (error) { sequenceReview = {passed:false, scores:{}, reason:error.message}; }
+    return {...packageInput, sequenceReview, ...validateProductionPackage({...packageInput, sequenceReview})};
+  };
+  const first = await evaluate(input);
+  if (first.errors.length !== 1 || first.errors[0] !== 'SEQUENCE_REVIEW_FAILED' || typeof rediscover !== 'function') return first;
+  try {
+    const regenerated = await rediscover(input);
+    return {...await evaluate(regenerated), sequenceRegenerated:true};
+  } catch (error) {
+    return {...first, sequenceRegenerated:false, sequenceRegenerationError:error.message};
+  }
+}
