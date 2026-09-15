@@ -9,6 +9,7 @@ import {buildDialogueTimeline, getReelDurationInFrames} from './dialogue.mjs';
 import {buildVisualTimeline} from './visuals.mjs';
 import {buildCharacterSegments} from './characters.mjs';
 import {createRenderReport} from './render-report.mjs';
+import {withActiveOutput} from './retention.mjs';
 
 const browserExecutable = process.env.REMOTION_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
 const execFileAsync = promisify(execFile);
@@ -53,7 +54,7 @@ export async function renderReel(input) {
   // container sharing the same Docker VM memory ceiling. Single-threaded render is slower but
   // bounded; raise this once the host has real memory headroom to spare.
   const concurrency = Number(process.env.REMOTION_RENDER_CONCURRENCY || 1);
-  await renderMedia({composition: {...composition, durationInFrames: request.durationInFrames}, serveUrl, codec: 'h264', audioCodec: 'aac', outputLocation, inputProps: request, browserExecutable, concurrency});
+  await withActiveOutput(outputLocation, () => renderMedia({composition: {...composition, durationInFrames: request.durationInFrames}, serveUrl, codec: 'h264', audioCodec: 'aac', outputLocation, inputProps: request, browserExecutable, concurrency}));
   const report = createRenderReport(request, outputLocation);
   const reportLocation = `${outputLocation}.json`;
   await fs.writeFile(reportLocation, JSON.stringify(report, null, 2));

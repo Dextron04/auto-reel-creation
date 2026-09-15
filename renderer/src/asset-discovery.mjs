@@ -9,7 +9,10 @@ import {createHash, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import Anthropic from '@anthropic-ai/sdk';
-import {MEDIA_ROOT} from './validation.mjs';
+import {MEDIA_ROOT, OUTPUT_ROOT} from './validation.mjs';
+import {pruneGeneratedMedia} from './retention.mjs';
+
+export {pruneGeneratedMedia, withActiveOutput} from './retention.mjs';
 
 const exec = promisify(execFile);
 const CHROMIUM = process.env.REMOTION_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
@@ -281,6 +284,15 @@ async function judgeVisuals(context, downloaded) {
 }
 
 export async function discoverVisuals(input) {
+  try {
+    await pruneGeneratedMedia({
+      mediaRoot: MEDIA_ROOT,
+      outputRoot: OUTPUT_ROOT,
+      retentionDays: process.env.GENERATED_MEDIA_RETENTION_DAYS ?? 14,
+    });
+  } catch (error) {
+    console.warn(`GENERATED_MEDIA_CLEANUP_FAILED:${error.message}`);
+  }
   const run = randomUUID(); const directory = path.join(MEDIA_ROOT,'visuals',run);
   await fs.mkdir(directory,{recursive:true});
   const visuals = []; const report = []; const used = new Set(); const pages = new Map(); const screenshots = new Map();

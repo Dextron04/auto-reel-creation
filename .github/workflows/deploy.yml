@@ -29,6 +29,9 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Check out deployment tooling
+        uses: actions/checkout@v4
+
       - name: Update production checkout
         env:
           DEPLOY_COMMIT: ${{ github.sha }}
@@ -36,15 +39,7 @@ jobs:
           set -euo pipefail
           export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-          cd "$HOME/auto-reel-creation"
-          git fetch --prune origin main
-          git checkout main
-          git merge --ff-only origin/main
-
-          if ! git merge-base --is-ancestor "$DEPLOY_COMMIT" HEAD; then
-            echo "Production checkout does not contain $DEPLOY_COMMIT" >&2
-            exit 1
-          fi
+          "$GITHUB_WORKSPACE/scripts/update-production-checkout.sh" "$HOME/auto-reel-creation" main
 
       - name: Test, rebuild, and verify
         run: |

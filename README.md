@@ -15,6 +15,10 @@ The workflow researches current AI developer tools, creates a 30-second Peter–
 5. Open n8n at http://localhost:5678 and import `n8n/workflows/research-and-render-reel.json`.
 6. Run the workflow. Rendered files appear in `output/`.
 
+Generated visual-run directories and rendered MP4/report files are retained for 14 days by default and pruned when the next visual-discovery run begins. Set `GENERATED_MEDIA_RETENTION_DAYS` in `.env.prod` to change the window; set it to `0` to disable pruning. Source media, character images, topic history, editorial records, and unrelated files are never part of this cleanup.
+
+Pushes to `main` that touch application or workflow files trigger `.github/workflows/deploy.yml`. The self-hosted deployment runner backs up any dirty or diverged tracked production state outside the checkout before aligning it to `origin/main`, then runs all regression suites, rebuilds the containers, verifies service health, and synchronizes the n8n workflow definitions. An untracked `.env.prod` is preserved; deployment aborts if the remote branch ever tracks that file.
+
 The operations dashboard is available at http://localhost:4000. It shows service health, the next scheduled run, live nodes, paginated execution history, schedule controls, and playable rendered videos. Set `N8N_API_KEY` in `.env.prod` for live execution data and schedule controls.
 
 The renderer health endpoint is http://localhost:3001/health. Platform publishing is intentionally not included yet.
