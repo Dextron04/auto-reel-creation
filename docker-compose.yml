@@ -39,7 +39,6 @@ services:
       - .env.prod
     environment:
       - DASHBOARD_PORT=4000
-      - N8N_BASE_URL=http://n8n:5678
       - RENDERER_URL_PUBLIC=http://renderer:3001
       - GENERIC_TIMEZONE=America/Chicago
     ports: ["127.0.0.1:4000:4000"]
