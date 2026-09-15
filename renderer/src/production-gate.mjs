@@ -1,5 +1,6 @@
 import {validateDialogue} from './sequence-review.mjs';
 import {validateVisualSelection, normalizeVisualCues} from './asset-discovery.mjs';
+import {phraseAnchorsTurn} from './visuals.mjs';
 import Anthropic from '@anthropic-ai/sdk';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -120,7 +121,7 @@ export function validateProductionPackage({dialogue = [], visuals = [], storyboa
   for (const visual of visuals) {
     const turn = visual.startTurn;
     const phrase = String(visual.phrase ?? '').trim();
-    if (!Number.isInteger(turn) || turn < 0 || turn >= dialogue.length || !phrase || !String(dialogue[turn]?.text ?? '').includes(phrase)) errors.push(`VISUAL_ANCHOR_MISSING:${Number.isInteger(turn) ? turn : 'INVALID'}`);
+    if (!Number.isInteger(turn) || turn < 0 || turn >= dialogue.length || !phrase || !phraseAnchorsTurn(dialogue[turn]?.text, phrase)) errors.push(`VISUAL_ANCHOR_MISSING:${Number.isInteger(turn) ? turn : 'INVALID'}`);
   }
   if (!sequenceReview) errors.push('SEQUENCE_REVIEW_REQUIRED');
   else {
