@@ -21,7 +21,7 @@ export function buildShortsUrl(videoId) {
 export async function refreshAccessToken({clientId, clientSecret, refreshToken}, fetchImpl = fetch) {
   const body = new URLSearchParams({client_id: clientId, client_secret: clientSecret, refresh_token: refreshToken, grant_type: 'refresh_token'})
   const response = await fetchImpl(TOKEN_URL, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body})
-  const json = await response.json()
+  const json = await response.json().catch(() => ({}))
   if (!response.ok || !json.access_token) throw new Error(`YOUTUBE_TOKEN_ERROR:${response.status}:${json.error_description || json.error || 'unknown'}`)
   return json.access_token
 }
@@ -52,7 +52,7 @@ export async function uploadVideoBytes({uploadUrl, videoBuffer}, fetchImpl = fet
     headers: {'Content-Type': 'video/mp4', 'Content-Length': String(videoBuffer.length)},
     body: videoBuffer,
   })
-  const json = await response.json()
+  const json = await response.json().catch(() => ({}))
   if (!response.ok || !json.id) throw new Error(`YOUTUBE_UPLOAD_ERROR:${response.status}:${json.error?.message || 'no id returned'}`)
   return json.id
 }
