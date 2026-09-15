@@ -776,7 +776,7 @@
         "jsCode": "const promptItem = $items('Build Instagram Caption Prompt')[0]?.json ?? {};\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nlet caption; let captionSource = 'seo_fallback';\nif (statusCode >= 200 && statusCode < 300 && text) {\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  const candidate = String(fenced?.[1] ?? text).trim();\n  try {\n    const parsed = JSON.parse(candidate);\n    const parsedCaption = String(parsed.caption ?? '').trim();\n    const hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.map((tag) => String(tag).trim()).filter(Boolean) : [];\n    if (parsedCaption && hashtags.length) { caption = `${parsedCaption}\\n\\n${hashtags.join(' ')}`; captionSource = 'claude'; }\n  } catch {}\n}\nif (!caption) {\n  const seoBrief = promptItem.seo_brief ?? {};\n  const description = String(seoBrief.description ?? '').trim();\n  const hashtags = Array.isArray(seoBrief.hashtags) ? seoBrief.hashtags : [];\n  caption = [description, hashtags.join(' ')].filter(Boolean).join('\\n\\n');\n}\nif (!caption) throw new Error('INSTAGRAM_CAPTION_UNAVAILABLE');\nreturn [{ json: { caption, captionSource, outputLocation: promptItem.outputLocation } }];"
       },
       "id": "route-instagram-caption",
-      "name": "Route Instagram Caption Result",
+      "name": "Caption Ready",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -816,6 +816,53 @@
       "position": [
         4080,
         0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $items('Build Dialogue Audio and Subtitle Render Job')[0]?.json ?? {};\nconst topic = context.research?.recommended_topic ?? {};\nconst rawTitle = `${topic.tool_name ?? topic.topic ?? 'AI Tool'}: ${topic.hook ?? ''}`.trim();\nconst title = rawTitle.length > 100 ? `${rawTitle.slice(0, 99).trimEnd()}…` : rawTitle;\nconst caption = String($json.caption ?? '').trim();\nconst description = /#shorts/i.test(caption) ? caption : `${caption}\\n\\n#Shorts`.trim();\nreturn [{ json: { title, description, outputLocation: $json.outputLocation } }];"
+      },
+      "id": "build-youtube-metadata",
+      "name": "Build YouTube Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/publish/youtube",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { outputLocation: $json.outputLocation, title: $json.title, description: $json.description } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "youtube-publish",
+      "name": "Publish to YouTube",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4320,
+        200
       ]
     },
     {
@@ -1320,18 +1367,34 @@
       "main": [
         [
           {
-            "node": "Route Instagram Caption Result",
+            "node": "Caption Ready",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Route Instagram Caption Result": {
+    "Caption Ready": {
       "main": [
         [
           {
             "node": "Publish to Instagram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Build YouTube Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build YouTube Metadata": {
+      "main": [
+        [
+          {
+            "node": "Publish to YouTube",
             "type": "main",
             "index": 0
           }
