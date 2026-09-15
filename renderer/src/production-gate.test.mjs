@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import {validateProductionPackage, validateWithSequenceRetry, parseSequenceReview, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
+import {validateProductionPackage, validateWithSequenceRetry, buildSequenceRetryInput, sequenceReviewPrompt, parseSequenceReview, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
 
 const goodDialogue = Array.from({length: 6}, (_, i) => ({
   speaker: i % 2 ? 'stewie' : 'peter',
@@ -56,6 +56,23 @@ test('a sequence-only failure rediscovers the complete visual package once', asy
   assert.equal(result.ok,true);
   assert.equal(result.sequenceRegenerated,true);
   assert.equal(result.visuals[0].assetId,'replacement-0');
+});
+
+test('sequence retry keeps at most two stock cues and converts the rest to cited product shots', () => {
+  const visualCues = Array.from({length:8},(_,index)=>({turn_index:index%6, phrase:`turn ${index%6}`, query:`query ${index}`, kind:index%2?'stock':'screenshot', visual_purpose:index%2?'reaction':'interface', source_url:'https://source.example/article'}));
+  const retry = buildSequenceRetryInput({dialogue:goodDialogue,visualCues,research:{recommended_topic:{tool_name:'Agentwire',claims:[{source_url:'https://source.example/article'}]}}},'too many generic stock images');
+  assert.equal(retry.visualCues.filter(cue=>cue.kind==='stock').length,2);
+  assert.equal(retry.visualCues[7].kind,'screenshot');
+  assert.equal(retry.visualCues[7].source_url,'https://source.example/article');
+  assert.match(retry.visualCues[7].query,/Agentwire.*interface detail/i);
+});
+
+test('sequence review scores visuals against their declared editorial purpose', () => {
+  const prompt = sequenceReviewPrompt({dialogue:goodDialogue});
+  assert.match(prompt,/declared purpose/i);
+  assert.match(prompt,/reaction and context visuals/i);
+  assert.match(prompt,/do not require a mobile mockup/i);
+  assert.match(prompt,/visible watermarks/i);
 });
 
 test('production gate rejects stale or self-attested reviews', () => {

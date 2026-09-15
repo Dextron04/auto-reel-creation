@@ -180,6 +180,29 @@ export function visualSearchQuery(tool, cue, query) {
 
 export const sourcePageFallbackAllowed = cue => cue?.kind !== 'stock';
 
+const PREMIUM_STOCK = /(?:^|\.)plus\.unsplash\.com$|(?:^|\.)(?:gettyimages|istockphoto|freepik|shutterstock|alamy|dreamstime)\.com$|^stock\.adobe\.com$/;
+export function candidateIsUsableStock(candidate) {
+  for (const value of [candidate?.url, candidate?.sourceUrl]) {
+    try { if (PREMIUM_STOCK.test(new URL(value).hostname.toLowerCase())) return false; }
+    catch {}
+  }
+  return true;
+}
+
+export function normalizeVisualCues(cues = [], {tool = 'the product', citedSource, maxStock = 2} = {}) {
+  let stockCount = 0;
+  return cues.map(cue => {
+    if (cue.kind !== 'stock' || ++stockCount <= maxStock) return cue;
+    return {
+      ...cue,
+      kind:'screenshot',
+      visual_purpose:cue.visual_purpose === 'context' ? 'mechanism' : 'evidence',
+      query:`${tool} ${cue.phrase} interface detail readable`,
+      source_url:citedSource ?? cue.source_url,
+    };
+  });
+}
+
 const canonicalSource = value => {
   try {
     const url = new URL(value);
@@ -292,7 +315,7 @@ export function parseJudgement(text, count) {
 export function judgePrompt({tool, topic, turnText, phrase, purpose, kind, query}) {
   const purposes = {identity:'the tool\'s logo or brand mark', interface:'the tool\'s actual user interface, editor, terminal or dashboard', mechanism:'a diagram or code showing how it works', outcome:'a result, benchmark, chart, bill or comparison', reaction:'a human reaction that supports the dialogue beat', context:'an editorial scene that establishes the situation'};
   const selectionRule = kind === 'stock'
-    ? 'This cue specifically calls for a stock photo or editorial illustration. People are acceptable when their expression or situation clearly matches the line. Reject product dashboards, logos, and unrelated software interfaces.'
+    ? 'This cue specifically calls for a stock photo or editorial illustration. People are acceptable when their expression or situation clearly matches the line. Reject product dashboards, logos, unrelated software interfaces, visible watermarks, and stock-preview overlays.'
     : `Reject stock photos, generic article headers, people, page navigation, cookie banners, ads, blank or unreadable images. A picture of a different product than ${tool} is acceptable only when the line is about a general concept; never when the line names, describes or praises ${tool}.`;
   return `Video topic: ${tool} — ${topic}.\nSpeaker line: "${turnText}"\nThe picture appears exactly when they say: "${phrase}"\nIntended picture: ${purposes[purpose]} (search query was "${query}").\n\nPick the ONE image a viewer would recognise as illustrating that line. Be strict: ${selectionRule} If none clearly fit, answer 0 and suggest a more specific web image search query that would actually find a picture proving this exact line — name the concrete thing to search for (a specific UI panel, a specific metric or chart, a specific diagram), not a rephrase of the line itself.\nReply with JSON only: {"best": <image number or 0>, "reason": "<short>", "suggested_query": "<only when best is 0>"}`;
 }
@@ -323,7 +346,8 @@ export async function discoverVisuals(input) {
   await fs.mkdir(directory,{recursive:true});
   const visuals = []; const report = []; const used = new Set(); const pages = new Map(); const screenshots = new Map();
   const sources = (input.research?.recommended_topic?.claims || []).map(c=>c.source_url).filter(Boolean);
-  const cues = (input.visualCues || []).slice(0,12);
+  const tool = String(input.research?.recommended_topic?.tool_name || input.research?.recommended_topic?.topic || 'the tool');
+  const cues = normalizeVisualCues((input.visualCues || []).slice(0,12), {tool, citedSource:sources[0]});
   const fetchPage = async url => {
     if (!pages.has(url)) pages.set(url, getPublic(url).catch(error => ({error})));
     return pages.get(url);
@@ -332,7 +356,6 @@ export async function discoverVisuals(input) {
     if (!screenshots.has(url)) screenshots.set(url, screenshotPage(url, directory).catch(error => ({error})));
     return screenshots.get(url);
   };
-  const tool = String(input.research?.recommended_topic?.tool_name || input.research?.recommended_topic?.topic || 'the tool');
   const topic = String(input.research?.recommended_topic?.one_line_value || input.focus || '');
   const MAX_QUERY_ATTEMPTS = 5;
   for (const cue of cues) {
@@ -363,7 +386,7 @@ export async function discoverVisuals(input) {
       }
       // Site icons only depict identity. A rendered source page joins the pool as the "interface" fallback.
       const tried = new Set();
-      const rank = () => candidates.filter(c => candidateMatchesCueSource(c, cue, urls) && (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
+      const rank = () => candidates.filter(c => candidateMatchesCueSource(c, cue, urls) && (cue.kind !== 'stock' || candidateIsUsableStock(c)) && (purpose === 'identity' || !c.icon) && !used.has(keyOf(c)) && !tried.has(keyOf(c))).sort((a,b)=>(b.score+purposeScore(b,purpose))-(a.score+purposeScore(a,purpose)));
       const addShot = async pageUrl => {
         if (!pageUrl || shotUrls.has(pageUrl)) return; shotUrls.add(pageUrl);
         const shot = await fetchScreenshot(pageUrl);

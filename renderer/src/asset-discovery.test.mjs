@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {pageImages,publicAddress,readmeImages,assetKey,keyOf,purposeScore,isUsableVisualCue,SCREENSHOT_SLICES,validateVisualSelection,visualSearchQuery,candidateMatchesCueSource,sourcePageFallbackAllowed} from './asset-discovery.mjs';
+import {pageImages,publicAddress,readmeImages,assetKey,keyOf,purposeScore,isUsableVisualCue,SCREENSHOT_SLICES,validateVisualSelection,visualSearchQuery,candidateMatchesCueSource,sourcePageFallbackAllowed,candidateIsUsableStock,normalizeVisualCues} from './asset-discovery.mjs';
 import {buildVisualTimeline} from './visuals.mjs';
 test('extracts relevant page images and resolves relative sources',()=>{
   const result=pageImages('<meta property="og:image" content="/preview.png"><img src="/workflow.png" alt="Agent workflow"><img src="/ad.png" alt="Buy shoes">','https://example.com/docs','Agent workflow');
@@ -86,6 +86,19 @@ test('stock cue judging allows people while rejecting product dashboards',()=>{
   assert.match(prompt,/stock photo or editorial illustration/i);
   assert.match(prompt,/people are acceptable/i);
   assert.match(prompt,/reject product dashboards/i);
+  assert.match(prompt,/visible watermarks/i);
+});
+test('premium stock previews are rejected before vision judging',()=>{
+  assert.equal(candidateIsUsableStock({url:'https://plus.unsplash.com/premium_photo.jpg',sourceUrl:'https://unsplash.com/photos/example'}),false);
+  assert.equal(candidateIsUsableStock({url:'https://media.gettyimages.com/id/123/photo.jpg',sourceUrl:'https://gettyimages.com/detail/123'}),false);
+  assert.equal(candidateIsUsableStock({url:'https://images.pexels.com/photos/123/photo.jpeg',sourceUrl:'https://pexels.com/photo/example'}),true);
+});
+test('visual discovery caps stock cues and turns overflow into cited product details',()=>{
+  const cues=Array.from({length:4},(_,index)=>({turn_index:index,phrase:`turn ${index}`,query:`query ${index}`,kind:'stock',visual_purpose:index<2?'reaction':'context',source_url:'https://stock.example'}));
+  const result=normalizeVisualCues(cues,{tool:'Agentwire',citedSource:'https://dev.to/agentwire'});
+  assert.equal(result.filter(cue=>cue.kind==='stock').length,2);
+  assert.deepEqual(result.slice(2).map(cue=>cue.source_url),['https://dev.to/agentwire','https://dev.to/agentwire']);
+  assert.ok(result.slice(2).every(cue=>/Agentwire.*interface detail/i.test(cue.query)));
 });
 test('product screenshots must come from the cited source page',()=>{
   const cue={kind:'screenshot',source_url:'https://dev.to/compoundlabs/agentwire-review'};
