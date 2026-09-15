@@ -2,6 +2,7 @@ import express from 'express';
 import {renderReel} from './render.mjs';
 import {discoverVisuals} from './asset-discovery.mjs';
 import {publishToInstagram, diagnoseInstagramContainer} from './publish-instagram.mjs';
+import {publishToYouTube} from './publish-youtube.mjs';
 import {readTopicHistory, recordTopic, selectUnusedTopic} from './topic-history.mjs';
 import {discoverTrends} from './trend-discovery.mjs';
 import {buildStoryboard, scoreVisual, approveStoryboard} from './visual-preflight.mjs';
@@ -27,6 +28,10 @@ app.post('/v1/publish/instagram', async (req, res) => {
 });
 app.post('/v1/publish/instagram/diagnose', async (req, res) => {
   try { res.json(await diagnoseInstagramContainer(req.body)); }
+  catch (error) { res.status(400).json({error: error.message}); }
+});
+app.post('/v1/publish/youtube', async (req, res) => {
+  try { res.json(await publishToYouTube(req.body)); }
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.get('/v1/topic-history', async (_req, res) => {
