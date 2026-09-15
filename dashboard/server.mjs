@@ -9,6 +9,7 @@ import {
   mergeExecutionDetails,
   nextCronOccurrence,
   triggerManualRun,
+  workflowTopology,
 } from './operations.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,6 +25,8 @@ const SCHEDULE_TIMEZONE = process.env.GENERIC_TIMEZONE ?? 'America/Chicago';
 const SCHEDULE_NODE_NAME = 'Research Twice Daily';
 
 let cachedWorkflowId = null;
+let cachedWorkflowGraph = null;
+const executionDetailCache = new Map();
 let manualTriggerPending = false;
 
 function n8nConfigured() { return Boolean(N8N_API_KEY); }
@@ -48,6 +51,27 @@ async function findWorkflowId() {
   if (!match) throw new Error('N8N_WORKFLOW_NOT_FOUND');
   cachedWorkflowId = match.id;
   return cachedWorkflowId;
+}
+
+async function fetchWorkflow({fresh = false} = {}) {
+  const id = await findWorkflowId();
+  if (!fresh && cachedWorkflowGraph) return {id, ...cachedWorkflowGraph};
+  const workflow = await n8nFetch(`/api/v1/workflows/${id}`);
+  cachedWorkflowGraph = {workflow, nodes: workflowTopology(workflow)};
+  return {id, ...cachedWorkflowGraph};
+}
+
+async function fetchExecutionDetail(summary, workflowNodes) {
+  if (summary.status !== 'running' && executionDetailCache.has(summary.id)) return executionDetailCache.get(summary.id);
+  const detail = mapExecution(
+    await n8nFetch(`/api/v1/executions/${encodeURIComponent(summary.id)}?includeData=true`),
+    workflowNodes,
+  );
+  if (summary.status !== 'running') {
+    executionDetailCache.set(summary.id, detail);
+    while (executionDetailCache.size > 100) executionDetailCache.delete(executionDetailCache.keys().next().value);
+  }
+  return detail;
 }
 
 function findScheduleNode(workflow) {
@@ -111,9 +135,8 @@ app.get('/api/status', async (_req, res) => {
   let n8nError = null;
   if (n8nConfigured()) {
     try {
-      const id = await findWorkflowId();
-      const wf = await n8nFetch(`/api/v1/workflows/${id}`);
-      workflow = {id, name: wf.name, active: wf.active, updatedAt: wf.updatedAt};
+      const {id, workflow: wf, nodes} = await fetchWorkflow({fresh: true});
+      workflow = {id, name: wf.name, active: wf.active, updatedAt: wf.updatedAt, nodeCount: nodes.length};
     } catch (error) { n8nError = error.message; }
   }
 
@@ -222,26 +245,27 @@ app.get('/api/videos', async (_req, res) => {
 app.get('/api/executions', async (req, res) => {
   if (!n8nConfigured()) return res.json({configured: false, recent: []});
   try {
-    const id = await findWorkflowId();
+    const {id, nodes: workflowNodes} = await fetchWorkflow();
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
     const list = await n8nFetch(executionListPath(id, cursor));
-    const summaries = (list.data ?? []).map(mapExecution);
-    const runningDetails = await Promise.all(
+    const summaries = (list.data ?? []).map(execution => mapExecution(execution));
+    const detailedExecutions = await Promise.all(
       summaries
-        .filter(execution => execution.status === 'running')
+        .filter((execution, index) => execution.status === 'running' || index < 12)
         .map(async execution => {
           try {
-            return mapExecution(await n8nFetch(`/api/v1/executions/${encodeURIComponent(execution.id)}?includeData=true`));
+            return await fetchExecutionDetail(execution, workflowNodes);
           } catch {
             return execution;
           }
         }),
     );
-    const executions = mergeExecutionDetails(summaries, runningDetails);
+    const executions = mergeExecutionDetails(summaries, detailedExecutions);
     res.json({
       configured: true,
       executions,
       running: executions.filter(exec => exec.status === 'running'),
+      workflowNodes,
       nextCursor: list.nextCursor ?? null,
     });
   } catch (error) { res.status(500).json({configured: true, error: error.message, executions: [], running: [], nextCursor: null}); }

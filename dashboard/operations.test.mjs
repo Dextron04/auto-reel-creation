@@ -9,6 +9,7 @@ import {
   mapExecution,
   mergeExecutionDetails,
   nextCronOccurrence,
+  workflowTopology,
 } from './operations.mjs';
 
 test('manualRunAvailability blocks a duplicate while an execution is running', () => {
@@ -151,4 +152,62 @@ test('mapExecution reports the failed node and nested error message', () => {
   assert.equal(mapped.lastNode, 'Render 9:16 Reel with Subtitles');
   assert.equal(mapped.error, 'Renderer timed out');
   assert.deepEqual(mapped.currentNodes, []);
+});
+
+test('workflowTopology returns a stable dependency order with operational stages', () => {
+  const topology = workflowTopology({
+    nodes: [
+      {name: 'Publish to Instagram', type: 'http', position: [500, 0]},
+      {name: 'Run from Dashboard', type: 'webhook', position: [0, 0]},
+      {name: 'Render 9:16 Reel with Subtitles', type: 'http', position: [300, 0]},
+      {name: 'Generate Dialogue Turn WAV', type: 'http', position: [200, 0]},
+    ],
+    connections: {
+      'Run from Dashboard': {main: [[{node: 'Generate Dialogue Turn WAV'}]]},
+      'Generate Dialogue Turn WAV': {main: [[{node: 'Render 9:16 Reel with Subtitles'}]]},
+      'Render 9:16 Reel with Subtitles': {main: [[{node: 'Publish to Instagram'}]]},
+    },
+  });
+
+  assert.deepEqual(topology.map(node => node.name), [
+    'Run from Dashboard',
+    'Generate Dialogue Turn WAV',
+    'Render 9:16 Reel with Subtitles',
+    'Publish to Instagram',
+  ]);
+  assert.deepEqual(topology.map(node => node.stage), ['discover', 'voice', 'render', 'publish']);
+});
+
+test('mapExecution exposes completed, active, failed, and queued node states', () => {
+  const workflowNodes = [
+    {name: 'Fetch OpenAI News', stage: 'discover'},
+    {name: 'Research with Claude', stage: 'script'},
+    {name: 'Find and Download Script Images', stage: 'visuals'},
+    {name: 'Validate Production Editorial Package', stage: 'quality'},
+  ];
+  const mapped = mapExecution({
+    id: '2001',
+    status: 'running',
+    startedAt: '2026-09-15T12:00:00.000Z',
+    data: {
+      resultData: {
+        runData: {
+          'Fetch OpenAI News': [{startTime: 1, executionTime: 80}],
+          'Research with Claude': [{startTime: 2, executionTime: 420}],
+          'Find and Download Script Images': [{startTime: 3, executionTime: 120, error: {message: 'candidate unavailable'}}],
+        },
+      },
+      executionData: {nodeExecutionStack: [{node: {name: 'Research with Claude'}}]},
+    },
+  }, workflowNodes);
+
+  assert.deepEqual(mapped.nodeStates.map(node => [node.name, node.state]), [
+    ['Fetch OpenAI News', 'complete'],
+    ['Research with Claude', 'active'],
+    ['Find and Download Script Images', 'failed'],
+    ['Validate Production Editorial Package', 'queued'],
+  ]);
+  assert.equal(mapped.completedNodeCount, 1);
+  assert.equal(mapped.totalNodeCount, 4);
+  assert.equal(mapped.progressPercent, 25);
 });

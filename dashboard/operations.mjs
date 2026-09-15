@@ -138,12 +138,81 @@ export function mergeExecutionDetails(summaries, details) {
   return summaries.map(execution => detailsById.get(execution.id) ?? execution);
 }
 
-export function mapExecution(execution) {
+const stageRules = [
+  ['publish', /publish|youtube|instagram/i],
+  ['render', /render 9:16|render job/i],
+  ['quality', /validate|editorial|caption ready/i],
+  ['visuals', /visual|image/i],
+  ['voice', /voice|dialogue turn wav|audio/i],
+  ['script', /research with|research package|topic|seo|dialogue|caption prompt|write instagram/i],
+  ['discover', /trigger|dashboard|fetch|merge research|score developer/i],
+];
+
+export function workflowStage(name, type = '') {
+  const searchable = `${name} ${type}`;
+  return stageRules.find(([, pattern]) => pattern.test(searchable))?.[0] ?? 'prepare';
+}
+
+export function workflowTopology(workflow = {}) {
+  const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
+  const byName = new Map(nodes.map((node, sourceIndex) => [node.name, {
+    name: node.name,
+    type: node.type,
+    stage: workflowStage(node.name, node.type),
+    sourceIndex,
+    position: Array.isArray(node.position) ? node.position : [sourceIndex, 0],
+  }]));
+  const indegree = new Map(nodes.map(node => [node.name, 0]));
+  const outgoing = new Map(nodes.map(node => [node.name, new Set()]));
+
+  for (const [source, groups] of Object.entries(workflow.connections ?? {})) {
+    for (const branch of groups?.main ?? []) {
+      for (const target of branch ?? []) {
+        if (!byName.has(source) || !byName.has(target?.node) || outgoing.get(source).has(target.node)) continue;
+        outgoing.get(source).add(target.node);
+        indegree.set(target.node, (indegree.get(target.node) ?? 0) + 1);
+      }
+    }
+  }
+
+  const compare = (a, b) => a.position[0] - b.position[0] || a.position[1] - b.position[1] || a.sourceIndex - b.sourceIndex;
+  const ready = [...byName.values()].filter(node => indegree.get(node.name) === 0).sort(compare);
+  const ordered = [];
+  while (ready.length) {
+    const node = ready.shift();
+    ordered.push(node);
+    for (const targetName of outgoing.get(node.name) ?? []) {
+      indegree.set(targetName, indegree.get(targetName) - 1);
+      if (indegree.get(targetName) === 0) {
+        ready.push(byName.get(targetName));
+        ready.sort(compare);
+      }
+    }
+  }
+  for (const node of [...byName.values()].sort(compare)) if (!ordered.some(item => item.name === node.name)) ordered.push(node);
+  return ordered.map(({sourceIndex, position, ...node}, order) => ({...node, order}));
+}
+
+export function mapExecution(execution, workflowNodes = []) {
   const resultData = execution.data?.resultData ?? {};
   const stack = execution.data?.executionData?.nodeExecutionStack ?? [];
   const currentNodes = execution.status === 'running'
     ? [...new Set(stack.map(item => item?.node?.name).filter(Boolean))]
     : [];
+  const active = new Set(currentNodes);
+  const runData = resultData.runData ?? {};
+  const nodeStates = workflowNodes.map(node => {
+    const runs = Array.isArray(runData[node.name]) ? runData[node.name] : [];
+    const failedRun = runs.find(run => run?.error || run?.executionStatus === 'error');
+    const state = active.has(node.name) ? 'active' : failedRun ? 'failed' : runs.length ? 'complete' : 'queued';
+    return {
+      ...node,
+      state,
+      durationMs: runs.reduce((sum, run) => sum + (Number(run?.executionTime) || 0), 0) || null,
+      error: failedRun?.error?.message ?? null,
+    };
+  });
+  const completedNodeCount = nodeStates.filter(node => node.state === 'complete').length;
 
   return {
     id: execution.id,
@@ -154,5 +223,9 @@ export function mapExecution(execution) {
     error: execution.status === 'error' && resultData.error ? (resultData.error.message ?? 'Unknown error') : null,
     lastNode: resultData.lastNodeExecuted ?? null,
     currentNodes,
+    nodeStates,
+    completedNodeCount,
+    totalNodeCount: nodeStates.length,
+    progressPercent: nodeStates.length ? Math.round((completedNodeCount / nodeStates.length) * 100) : null,
   };
 }

@@ -19,7 +19,7 @@ Generated visual-run directories and rendered MP4/report files are retained for 
 
 Pushes to `main` that touch application or workflow files trigger `.github/workflows/deploy.yml`. The self-hosted deployment runner backs up any dirty or diverged tracked production state outside the checkout before aligning it to `origin/main`, then runs all regression suites, rebuilds the containers, verifies service health, and synchronizes the n8n workflow definitions. An untracked `.env.prod` is preserved; deployment aborts if the remote branch ever tracks that file.
 
-The operations dashboard is available at http://localhost:4000. It shows service health, the next scheduled run, live nodes, paginated execution history, schedule controls, and playable rendered videos. Set `N8N_API_KEY` in `.env.prod` for live execution data and schedule controls.
+The mobile-first operations dashboard is available at http://localhost:4000. It provides adaptive live polling, an execution progress rail with active and failed node states, production metrics, filtered run diagnostics, schedule and manual-run controls, service readiness, and playable rendered videos. Set `N8N_API_KEY` in `.env.prod` for live execution data and schedule controls.
 
 The renderer health endpoint is http://localhost:3001/health. Platform publishing is intentionally not included yet.
 

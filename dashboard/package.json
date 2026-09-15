@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node --env-file-if-exists=../.env.prod server.mjs",
-    "test": "node --test"
+    "test": "node --test && node --check public/app.mjs && node --check server.mjs"
   },
   "dependencies": {
     "express": "^4.21.2"
