@@ -211,7 +211,10 @@ const canonicalSource = value => {
 };
 
 export function candidateMatchesCueSource(candidate, cue, sourceUrls = []) {
-  if (cue?.kind !== 'screenshot') return true;
+  // Only page-scraped candidates (og:image social cards, README images) can bleed in from
+  // another claim's page — a live search result is already scoped to this cue's own query,
+  // so locking it to the cue's source page just starves cues that share a cited article.
+  if (cue?.kind !== 'screenshot' || candidate?.search) return true;
   const allowed = new Set([cue?.source_url, ...sourceUrls].map(canonicalSource).filter(Boolean));
   if (!allowed.size) return true;
   return allowed.has(canonicalSource(candidate?.sourceUrl));
