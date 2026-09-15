@@ -145,8 +145,8 @@ export function validateProductionPackage({dialogue = [], visuals = [], storyboa
 export function buildSequenceRetryInput(input = {}, feedback = '') {
   const topic = input.research?.recommended_topic ?? {};
   const tool = String(topic.tool_name ?? topic.topic ?? 'the product');
-  const citedSource = topic.claims?.map(claim => claim.source_url).find(Boolean);
-  const visualCues = normalizeVisualCues(input.visualCues ?? [], {tool, citedSource});
+  const sources = topic.claims?.map(claim => claim.source_url).filter(Boolean) ?? [];
+  const visualCues = normalizeVisualCues(input.visualCues ?? [], {tool, citedSource: sources[0], sources});
   return {...input, visualCues, sequenceReviewFeedback:String(feedback)};
 }
 

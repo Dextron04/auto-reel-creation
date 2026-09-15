@@ -189,26 +189,39 @@ export function candidateIsUsableStock(candidate) {
   return true;
 }
 
-export function normalizeVisualCues(cues = [], {tool = 'the product', citedSource, maxStock = 2} = {}) {
-  let stockCount = 0;
-  return cues.map(cue => {
-    if (cue.kind !== 'stock' || ++stockCount <= maxStock) return cue;
-    return {
-      ...cue,
-      kind:'screenshot',
-      visual_purpose:cue.visual_purpose === 'context' ? 'mechanism' : 'evidence',
-      query:`${tool} ${cue.phrase} interface detail readable`,
-      source_url:citedSource ?? cue.source_url,
-    };
-  });
-}
-
 const canonicalSource = value => {
   try {
     const url = new URL(value);
     return `${url.origin}${url.pathname.replace(/\/$/, '')}`;
   } catch { return null; }
 };
+
+const GITHUB_REPO = /^https:\/\/github\.com\/[^/]+\/[^/]+\/?$/;
+
+// The dialogue-writing model is told to cite "the exact product, documentation, repository, or
+// evidence page" per cue, and sometimes invents a plausible-looking URL (a guessed docs path)
+// that 404s instead of reusing a source research already verified. A cue built on a dead page
+// never gets real page-scraped candidates and falls back to noisy generic search results, which
+// tanks the sequence review. Screenshot cues get pinned to a verified claim source (or a
+// well-formed GitHub repo, which githubReadmeCandidates validates on fetch) unless already one.
+export function normalizeVisualCues(cues = [], {tool = 'the product', citedSource, sources = [], maxStock = 2} = {}) {
+  const verified = new Set([citedSource, ...sources].filter(Boolean).map(canonicalSource));
+  let stockCount = 0;
+  return cues.map(cue => {
+    let next = cue;
+    if (next.kind === 'screenshot' && next.source_url && !verified.has(canonicalSource(next.source_url)) && !GITHUB_REPO.test(next.source_url)) {
+      next = {...next, source_url: citedSource ?? next.source_url};
+    }
+    if (next.kind !== 'stock' || ++stockCount <= maxStock) return next;
+    return {
+      ...next,
+      kind:'screenshot',
+      visual_purpose:next.visual_purpose === 'context' ? 'mechanism' : 'evidence',
+      query:`${tool} ${next.phrase} interface detail readable`,
+      source_url:citedSource ?? next.source_url,
+    };
+  });
+}
 
 export function candidateMatchesCueSource(candidate, cue, sourceUrls = []) {
   // Only page-scraped candidates (og:image social cards, README images) can bleed in from
@@ -350,7 +363,7 @@ export async function discoverVisuals(input) {
   const visuals = []; const report = []; const used = new Set(); const pages = new Map(); const screenshots = new Map();
   const sources = (input.research?.recommended_topic?.claims || []).map(c=>c.source_url).filter(Boolean);
   const tool = String(input.research?.recommended_topic?.tool_name || input.research?.recommended_topic?.topic || 'the tool');
-  const cues = normalizeVisualCues((input.visualCues || []).slice(0,12), {tool, citedSource:sources[0]});
+  const cues = normalizeVisualCues((input.visualCues || []).slice(0,12), {tool, citedSource:sources[0], sources});
   const fetchPage = async url => {
     if (!pages.has(url)) pages.set(url, getPublic(url).catch(error => ({error})));
     return pages.get(url);
