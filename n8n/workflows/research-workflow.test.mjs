@@ -526,3 +526,47 @@ test('Instagram caption router combines Claude output or falls back to the SEO b
   const badJson = run({statusCode: 200, body: {content: [{type: 'text', text: 'Sure, here you go without json'}]}});
   assert.equal(badJson[0].json.captionSource, 'seo_fallback');
 });
+
+test('Caption Ready fans out to every publish platform branch', () => {
+  assert.equal(nodeById.get('route-instagram-caption').name, 'Caption Ready');
+  const targets = workflow.connections['Caption Ready'].main[0].map((edge) => edge.node);
+  assert.deepEqual(targets, ['Publish to Instagram', 'Build YouTube Metadata']);
+  assert.equal(workflow.connections['Write Instagram Caption with Claude'].main[0][0].node, 'Caption Ready');
+  assert.equal(workflow.connections['Build YouTube Metadata'].main[0][0].node, 'Publish to YouTube');
+});
+
+test('YouTube metadata builder derives a truncated title and reuses the Instagram caption as the description', () => {
+  const metadataNode = nodeById.get('build-youtube-metadata');
+  assert.ok(metadataNode, 'missing build-youtube-metadata node');
+  const context = {json: {research: {recommended_topic: {
+    tool_name: 'Agent Kit',
+    hook: 'Stop writing glue code for every coding agent you touch this quarter and beyond, seriously',
+  }}}};
+  const items = () => [context];
+
+  const withoutShorts = new Function('$json', '$items', metadataNode.parameters.jsCode)(
+    {caption: 'Stop writing glue code.\n\n#AgentKit #DevTools', outputLocation: '/output/reel-1.mp4'}, items,
+  );
+  assert.equal(withoutShorts.length, 1);
+  assert.ok(withoutShorts[0].json.title.startsWith('Agent Kit: Stop writing glue code'));
+  assert.ok(withoutShorts[0].json.title.length <= 100);
+  assert.match(withoutShorts[0].json.description, /#AgentKit #DevTools/);
+  assert.match(withoutShorts[0].json.description, /#Shorts$/);
+  assert.equal(withoutShorts[0].json.outputLocation, '/output/reel-1.mp4');
+
+  const withShorts = new Function('$json', '$items', metadataNode.parameters.jsCode)(
+    {caption: 'Already has #Shorts in it.', outputLocation: '/output/reel-1.mp4'}, items,
+  );
+  assert.equal((withShorts[0].json.description.match(/#Shorts/gi) || []).length, 1);
+});
+
+test('Publish to YouTube posts to the renderer and fails the run loudly like Instagram', () => {
+  const publishNode = nodeById.get('youtube-publish');
+  assert.ok(publishNode, 'missing youtube-publish node');
+  assert.equal(publishNode.parameters.url, 'http://renderer:3001/v1/publish/youtube');
+  assert.notEqual(publishNode.parameters.options.neverError, true, 'a publish failure must fail the execution, not be swallowed');
+  assert.equal(publishNode.parameters.options.timeout, 180000);
+  assert.match(publishNode.parameters.jsonBody, /outputLocation/);
+  assert.match(publishNode.parameters.jsonBody, /title/);
+  assert.match(publishNode.parameters.jsonBody, /description/);
+});
