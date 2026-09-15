@@ -28,11 +28,9 @@ app.post('/v1/render', async (req, res) => {
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.post('/v1/editorial/production-gate', async (req, res) => {
-  let sequenceReview = req.body?.sequenceReview;
-  if (!sequenceReview) {
-    try { sequenceReview = await reviewSequenceWithVision(req.body ?? {}); }
-    catch (error) { sequenceReview = {passed: false, scores: {}, reason: error.message}; }
-  }
+  let sequenceReview;
+  try { sequenceReview = await reviewSequenceWithVision(req.body ?? {}); }
+  catch (error) { sequenceReview = {passed: false, scores: {}, reason: error.message}; }
   const result = validateProductionPackage({...req.body, sequenceReview});
   res.status(result.ok ? 200 : 400).json({...req.body, sequenceReview, ...result});
 });

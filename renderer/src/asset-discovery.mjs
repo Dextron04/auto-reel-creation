@@ -158,10 +158,11 @@ const finalAssetKey = value => /#view\d+$/.test(String(value)) ? String(value) :
 export function validateVisualSelection(visuals, {minimumImages = 8, requiredTurns = 6} = {}) {
   const distinctImages = new Set((visuals || []).map(visual => finalAssetKey(visual.assetUrl || visual.imagePath))).size;
   if (distinctImages < minimumImages) throw new Error(`VISUAL_PREFLIGHT_FAILED:${distinctImages}_DISTINCT_IMAGES`);
-  const coveredTurns = new Set((visuals || []).map(visual => Number(visual.startTurn)).filter(Number.isInteger));
-  if (coveredTurns.size < requiredTurns) throw new Error(`VISUAL_PREFLIGHT_FAILED:${coveredTurns.size}_TURNS_COVERED`);
+  if ((visuals || []).some(visual => !Number.isInteger(visual.startTurn) || visual.startTurn < 0 || visual.startTurn >= requiredTurns)) throw new Error('VISUAL_PREFLIGHT_FAILED:INVALID_TURN_INDEX');
+  const coveredTurns = new Set((visuals || []).map(visual => visual.startTurn).filter(Number.isInteger));
+  for (let turn = 0; turn < requiredTurns; turn++) if (!coveredTurns.has(turn)) throw new Error(`VISUAL_PREFLIGHT_FAILED:TURN_${turn}_UNCOVERED`);
   if ((visuals || []).some(visual => !String(visual.judgement || '').trim())) throw new Error('VISUAL_PREFLIGHT_FAILED:UNJUDGED_IMAGE');
-  return {distinctImages, coveredTurns: coveredTurns.size};
+  return {distinctImages, coveredTurns: requiredTurns};
 }
 export function purposeScore(candidate, purpose) {
   const description = `${candidate.alt || ''} ${candidate.text || ''}`.toLowerCase();

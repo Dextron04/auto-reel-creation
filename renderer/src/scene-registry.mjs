@@ -17,5 +17,11 @@ export function sceneMotion(visual = {}, frame = 0, fps = 30) {
   if (type === 'connected-workflow') return {transform: `translateX(${Math.round((1 - eased) * -36)}px) scale(${(0.9 + eased * 0.1).toFixed(4)})`, filter: `saturate(${(0.75 + eased * 0.25).toFixed(3)})`};
   if (type === 'metric-counter') return {transform: `scale(${(0.86 + eased * 0.14).toFixed(4)})`, filter: `brightness(${(0.8 + eased * 0.2).toFixed(3)})`};
   if (type === 'screenshot-focus') return {transform: `scale(${(0.96 + eased * 0.04).toFixed(4)})`, filter: 'drop-shadow(0 14px 22px rgba(0,0,0,.46))'};
-  return {transform: 'scale(1)', filter: 'drop-shadow(0 12px 18px rgba(0,0,0,.4))'};
+  const durationFrames = Math.max(2, Math.ceil(((Number(visual.end) - Number(visual.start)) || Number(visual.motion_duration) || 3) * Math.max(1, Number(fps))));
+  const edge = Math.min(6, durationFrames / 3);
+  const boundedFrame = clamp(Number(frame), 0, durationFrames);
+  const staticScale = boundedFrame <= edge
+    ? 0.96 + (boundedFrame / edge) * 0.04
+    : 1 + ((boundedFrame - edge) / (durationFrames - edge)) * 0.035;
+  return {transform: `scale(${staticScale.toFixed(4)})`, filter: 'drop-shadow(0 12px 18px rgba(0,0,0,.4))'};
 }

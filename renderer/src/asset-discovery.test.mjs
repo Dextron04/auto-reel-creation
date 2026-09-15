@@ -97,11 +97,24 @@ test('screenshot slices of the same page each count as a distinct approved image
   // (hero/middle/lower, assetId `<url>#view0/1/2`) were miscounted as one duplicate
   // because the old check ran assetUrl through assetKey(), which strips URL fragments.
   const slices = ['#view0','#view1','#view2'].map((view,index)=>({assetUrl:`https://example.com/page${view}`,startTurn:index,judgement:'approved'}));
-  const others = Array.from({length:5},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index+3,judgement:'approved'}));
+  const turns = [3,4,5,0,1];
+  const others = Array.from({length:5},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:turns[index],judgement:'approved'}));
   const result = validateVisualSelection([...slices,...others]);
   assert.equal(result.distinctImages,8);
 });
 test('visual preflight accepts eight distinct vision-approved images covering every turn',()=>{
   const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'matches dialogue'}));
   assert.equal(validateVisualSelection(visuals).distinctImages,8);
+});
+test('visual preflight requires the exact six dialogue turn indexes',()=>{
+  const indexes = [0,0,1,2,3,4,4,4];
+  const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:indexes[index],judgement:'matches dialogue'}));
+  assert.throws(()=>validateVisualSelection(visuals),/VISUAL_PREFLIGHT_FAILED:TURN_5_UNCOVERED/);
+});
+test('visual preflight does not coerce missing or empty turn indexes to turn zero',()=>{
+  for (const invalid of [null, '', undefined, '0']) {
+    const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'matches dialogue'}));
+    visuals[0].startTurn = invalid;
+    assert.throws(()=>validateVisualSelection(visuals),/VISUAL_PREFLIGHT_FAILED:INVALID_TURN_INDEX/);
+  }
 });

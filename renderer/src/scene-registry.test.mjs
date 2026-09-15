@@ -23,3 +23,12 @@ test('motion styles are deterministic and differ by scene type', () => {
   assert.notDeepEqual(terminalStyle, staticStyle);
   assert.equal(typeof terminalStyle.transform, 'string');
 });
+
+test('static fallback preserves the original gentle zoom', () => {
+  const start = sceneMotion({scene_type: 'static', start: 0, end: 4}, 0, 30);
+  const entered = sceneMotion({scene_type: 'static', start: 0, end: 4}, 6, 30);
+  const end = sceneMotion({scene_type: 'static', start: 0, end: 4}, 120, 30);
+  assert.match(start.transform, /scale\(0\.96/);
+  assert.equal(entered.transform, 'scale(1.0000)');
+  assert.match(end.transform, /scale\(1\.035/);
+});

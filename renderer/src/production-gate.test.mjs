@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateProductionPackage, parseSequenceReview} from './production-gate.mjs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {validateProductionPackage, parseSequenceReview, resolveReviewAssetPath, sequencePackageHash} from './production-gate.mjs';
 
 const goodDialogue = Array.from({length: 6}, (_, i) => ({
   speaker: i % 2 ? 'stewie' : 'peter',
@@ -11,24 +14,51 @@ const goodVisuals = Array.from({length: 8}, (_, i) => ({
   assetId: `asset-${i}`,
   assetUrl: `https://example.test/asset-${i}.png`,
   startTurn: i % 6,
+  phrase: `turn ${i % 6}`,
   judgement: 'relevant and readable',
 }));
+const reviewFor = (dialogue = goodDialogue, visuals = goodVisuals) => ({
+  passed: true,
+  scores: {relevance: 4, coverage: 4, variety: 4, readability: 4, pacing: 4},
+  provider: 'anthropic',
+  packageHash: sequencePackageHash({dialogue, visuals}),
+});
 
 test('production gate accepts a complete judged package', () => {
-  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals, sequenceReview: {passed: true}});
+  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals, sequenceReview: reviewFor()});
   assert.deepEqual(result, {ok: true, errors: []});
 });
 
 test('production gate rejects unjudged or incomplete visuals', () => {
-  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals.slice(0, 7), sequenceReview: {passed: true}});
+  const visuals = goodVisuals.slice(0, 7);
+  const result = validateProductionPackage({dialogue: goodDialogue, visuals, sequenceReview: reviewFor(goodDialogue, visuals)});
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes('VISUAL_PREFLIGHT_FAILED:7_DISTINCT_IMAGES'));
 });
 
 test('production gate rejects a failed sequence review', () => {
-  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals, sequenceReview: {passed: false}});
+  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals, sequenceReview: {...reviewFor(), passed: false}});
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes('SEQUENCE_REVIEW_FAILED'));
+});
+
+test('production gate rejects stale or self-attested reviews', () => {
+  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals, sequenceReview: {passed: true}});
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes('SEQUENCE_REVIEW_INVALID'));
+});
+
+test('production gate validates selected visual anchors against the n8n dialogue shape', () => {
+  const visuals = goodVisuals.map((visual, index) => ({...visual, phrase: index === 0 ? 'missing phrase' : `turn ${visual.startTurn}`}));
+  const result = validateProductionPackage({dialogue: goodDialogue, visuals, sequenceReview: reviewFor(goodDialogue, visuals)});
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes('VISUAL_ANCHOR_MISSING:0'));
+});
+
+test('production gate requires an explicit sequence review result', () => {
+  const result = validateProductionPackage({dialogue: goodDialogue, visuals: goodVisuals});
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.includes('SEQUENCE_REVIEW_REQUIRED'));
 });
 
 test('sequence review parser accepts bounded multimodal scores', () => {
@@ -40,4 +70,43 @@ test('sequence review parser accepts bounded multimodal scores', () => {
 test('sequence review parser fails closed on malformed or weak output', () => {
   assert.equal(parseSequenceReview('not json').passed, false);
   assert.equal(parseSequenceReview(JSON.stringify({relevance: 5, coverage: 5, variety: 2, readability: 5, pacing: 5})).passed, false);
+});
+
+test('review asset paths map media URLs into the configured root and block traversal', async () => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'review-path-test-'));
+  const mediaRoot = path.join(temporaryDirectory, 'media');
+  const imagePath = path.join(mediaRoot, 'visuals/run/image.png');
+  await fs.mkdir(path.dirname(imagePath), {recursive: true});
+  await fs.writeFile(imagePath, 'image');
+  try {
+    assert.equal(await resolveReviewAssetPath('/media/visuals/run/image.png', mediaRoot), await fs.realpath(imagePath));
+    await assert.rejects(resolveReviewAssetPath('../secret.png', mediaRoot), /SEQUENCE_REVIEW_INVALID_ASSET/);
+  } finally {
+    await fs.rm(temporaryDirectory, {recursive: true, force: true});
+  }
+});
+
+test('review asset paths reject symlinks that escape the configured root', async () => {
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'review-symlink-test-'));
+  const mediaRoot = path.join(temporaryDirectory, 'media');
+  const outside = path.join(temporaryDirectory, 'outside.png');
+  const link = path.join(mediaRoot, 'visuals/escaped.png');
+  await fs.mkdir(path.dirname(link), {recursive: true});
+  await fs.writeFile(outside, 'secret');
+  await fs.symlink(outside, link);
+  try {
+    await assert.rejects(resolveReviewAssetPath('/media/visuals/escaped.png', mediaRoot), /SEQUENCE_REVIEW_INVALID_ASSET/);
+  } finally {
+    await fs.rm(temporaryDirectory, {recursive: true, force: true});
+  }
+});
+
+test('production gate does not coerce null or empty visual turns to turn zero', () => {
+  for (const invalid of [null, '', undefined, '0']) {
+    const visuals = goodVisuals.map(visual => ({...visual}));
+    visuals[0].startTurn = invalid;
+    const result = validateProductionPackage({dialogue: goodDialogue, visuals, sequenceReview: reviewFor(goodDialogue, visuals)});
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.includes('VISUAL_ANCHOR_MISSING:INVALID'));
+  }
 });
