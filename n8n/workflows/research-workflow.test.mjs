@@ -351,6 +351,7 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.match(result[0].json.prompt, /visuals/i);
   assert.match(result[0].json.prompt, /phrase/i);
   assert.match(result[0].json.prompt, /visual_purpose/i);
+  assert.doesNotMatch(result[0].json.prompt, /source_start_seconds/);
 });
 
 test('Claude is the primary dialogue writer and local Qwen is the fallback', () => {
@@ -441,6 +442,7 @@ test('dialogue normalization emits alternating voice jobs and rejects bad orderi
   assert.deepEqual(jobs.map((job) => job.json.turn_index), [0, 1, 2, 3, 4, 5]);
   assert.ok(jobs.every((job) => job.json.dialogue.length === 6));
   assert.equal(jobs[0].json.visuals[0].github_repo, 'example/agent-kit');
+  assert.equal(Object.hasOwn(jobs[0].json, 'source_start_seconds'), false);
 
   const invalid = {response: JSON.stringify({...JSON.parse(valid.response), turns: JSON.parse(valid.response).turns.map((turn, index) => index === 1 ? {...turn, speaker: 'peter'} : turn)})};
   assert.throws(() => new Function('$json', normalizeNode.parameters.jsCode)(invalid), /DIALOGUE_SPEAKER_ORDER/);
@@ -457,6 +459,7 @@ test('render job preserves script cues and research for image collection', () =>
   assert.equal(result[0].json.visualCues[0].phrase,'DeepSeek');
   assert.equal(result[0].json.research.recommended_topic.tool_name,'DeepSeek');
   assert.deepEqual(result[0].json.characterImages, {peter: '/media/peter.png', stewie: '/media/stewie.png'});
+  assert.equal(Object.hasOwn(result[0].json, 'startFrame'), false, 'renderer should choose a bounded random background offset');
   assert.equal(workflow.connections['Build Dialogue Audio and Subtitle Render Job'].main[0][0].node,'Find and Download Script Images');
 });
 

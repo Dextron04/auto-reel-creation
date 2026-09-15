@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {buildDialogueTimeline, getActiveWordColor} from './dialogue.mjs';
 import * as dialogueTools from './dialogue.mjs';
-import {validateRenderRequest} from './validation.mjs';
+import {chooseRandomStartFrame, validateRenderRequest} from './validation.mjs';
 
 const turns = [
   {speaker: 'peter', text: 'Developers meet this useful agent kit', audioPath: '/media/dialogue-0-peter.wav', durationSeconds: 6},
@@ -64,5 +64,21 @@ test('render validation resolves every dialogue audio path inside media root', (
   assert.throws(
     () => validateRenderRequest({sourceVideo: '/media/source.mp4', dialogue: [{...turns[0], audioPath: '/tmp/outside.wav'}]}),
     /MEDIA_PATH_OUTSIDE_ROOT/,
+  );
+});
+
+test('background start selection stays inside the source video', () => {
+  assert.equal(chooseRandomStartFrame(1140, 1800, {fps: 30, random: () => 0}), 0);
+  assert.equal(chooseRandomStartFrame(1140, 1800, {fps: 30, random: () => 0.999999}), 32400);
+});
+
+test('background start selection uses zero when the source exactly fits the reel', () => {
+  assert.equal(chooseRandomStartFrame(60, 1800, {fps: 30, random: () => 0.75}), 0);
+});
+
+test('background start selection rejects a source shorter than the reel', () => {
+  assert.throws(
+    () => chooseRandomStartFrame(59.9, 1800, {fps: 30, random: () => 0.5}),
+    /SOURCE_VIDEO_TOO_SHORT/,
   );
 });

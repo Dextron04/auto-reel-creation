@@ -3,6 +3,20 @@ import path from 'node:path';
 export const MEDIA_ROOT = process.env.MEDIA_ROOT ?? '/media';
 export const OUTPUT_ROOT = process.env.OUTPUT_ROOT ?? '/output';
 
+export function chooseRandomStartFrame(sourceDurationSeconds, reelDurationInFrames, {fps = 30, random = Math.random} = {}) {
+  const sourceFrames = Math.floor(Number(sourceDurationSeconds) * fps);
+  if (!Number.isFinite(sourceFrames) || sourceFrames <= 0) throw new Error('INVALID_SOURCE_VIDEO_DURATION');
+  const maxStartFrame = sourceFrames - reelDurationInFrames;
+  if (maxStartFrame < 0) {
+    throw new Error(`SOURCE_VIDEO_TOO_SHORT:${sourceFrames}_FRAMES_FOR_${reelDurationInFrames}`);
+  }
+
+  const sample = Number(random());
+  if (!Number.isFinite(sample)) throw new Error('INVALID_RANDOM_VALUE');
+  const boundedSample = Math.min(Math.max(sample, 0), 1 - Number.EPSILON);
+  return Math.min(maxStartFrame, Math.floor(boundedSample * (maxStartFrame + 1)));
+}
+
 export function resolveMediaPath(value, {optional = false} = {}) {
   if (!value && optional) return null;
   if (typeof value !== 'string' || !value.trim()) throw new Error('MEDIA_PATH_REQUIRED');

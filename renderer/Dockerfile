@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY src ./src
+COPY public ./public
 ENV MEDIA_ROOT=/media OUTPUT_ROOT=/output REMOTION_BROWSER_EXECUTABLE=/usr/bin/chromium
 EXPOSE 3001
 CMD ["node", "src/server.mjs"]

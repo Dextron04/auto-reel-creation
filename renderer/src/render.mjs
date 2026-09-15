@@ -1,6 +1,6 @@
 import {bundle} from '@remotion/bundler';
 import {renderMedia, selectComposition} from '@remotion/renderer';
-import {validateRenderRequest, OUTPUT_ROOT} from './validation.mjs';
+import {chooseRandomStartFrame, validateRenderRequest, OUTPUT_ROOT} from './validation.mjs';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -13,19 +13,20 @@ import {createRenderReport} from './render-report.mjs';
 const browserExecutable = process.env.REMOTION_BROWSER_EXECUTABLE ?? '/usr/bin/chromium';
 const execFileAsync = promisify(execFile);
 
-async function getAudioDurationSeconds(audioPath) {
-  const {stdout} = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', audioPath]);
+async function getMediaDurationSeconds(mediaPath, invalidDurationError) {
+  const {stdout} = await execFileAsync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', mediaPath]);
   const duration = Number(stdout.trim());
-  if (!Number.isFinite(duration) || duration <= 0) throw new Error(`INVALID_AUDIO_DURATION:${path.basename(audioPath)}`);
+  if (!Number.isFinite(duration) || duration <= 0) throw new Error(`${invalidDurationError}:${path.basename(mediaPath)}`);
   return duration;
 }
 
 export async function renderReel(input) {
+  const randomizeBackgroundStart = input.startFrame == null;
   let request = validateRenderRequest(input);
   if (request.dialogue.length) {
     const measuredDialogue = await Promise.all(request.dialogue.map(async (turn) => ({
       ...turn,
-      durationSeconds: await getAudioDurationSeconds(turn.audioPath),
+      durationSeconds: await getMediaDurationSeconds(turn.audioPath, 'INVALID_AUDIO_DURATION'),
     })));
     const timeline = buildDialogueTimeline(measuredDialogue, {maxDurationSeconds: 90, maxWordsPerCaption: 4});
     request = {
@@ -35,6 +36,10 @@ export async function renderReel(input) {
       dialogue: measuredDialogue,
       voiceOverlay: null,
     };
+  }
+  if (randomizeBackgroundStart) {
+    const sourceDurationSeconds = await getMediaDurationSeconds(request.sourceVideo, 'INVALID_SOURCE_VIDEO_DURATION');
+    request = {...request, startFrame: chooseRandomStartFrame(sourceDurationSeconds, request.durationInFrames)};
   }
   request = {...request, visuals: buildVisualTimeline(request.visuals, {durationSeconds: request.durationInFrames/30, audioSegments: request.audioSegments, captions:request.captions})};
   request = {...request, characterSegments: buildCharacterSegments(request.audioSegments, request.characterImages)};

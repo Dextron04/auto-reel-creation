@@ -1,4 +1,6 @@
 import express from 'express';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {renderReel} from './render.mjs';
 import {discoverVisuals} from './asset-discovery.mjs';
 import {publishToInstagram, diagnoseInstagramContainer} from './publish-instagram.mjs';
@@ -10,7 +12,9 @@ import {rankConcepts} from './editorial.mjs';
 import {writeEditorialRecord} from './editorial-record.mjs';
 
 const app = express();
+const PUBLIC_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 app.use(express.json({limit: '256kb'}));
+app.use(express.static(PUBLIC_ROOT, {extensions: ['html'], dotfiles: 'deny'}));
 app.use('/media', express.static(process.env.MEDIA_ROOT ?? '/media', {dotfiles: 'deny', fallthrough: false}));
 app.use('/output', express.static(process.env.OUTPUT_ROOT ?? '/output', {dotfiles: 'deny', fallthrough: false}));
 app.get('/health', (_req, res) => res.json({ready: true, renderer: 'remotion', canvas: '1080x1920'}));
