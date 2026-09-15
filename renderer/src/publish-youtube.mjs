@@ -1,12 +1,19 @@
+import path from 'node:path'
 import {readFile, stat} from 'node:fs/promises'
+import {OUTPUT_ROOT} from './validation.mjs'
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token'
 const UPLOAD_URL = 'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status'
 const TITLE_MAX_LENGTH = 100
 
+function truncateTitle(raw) {
+  const chars = [...raw]
+  return chars.length > TITLE_MAX_LENGTH ? `${chars.slice(0, TITLE_MAX_LENGTH - 1).join('').trimEnd()}…` : raw
+}
+
 export function buildTitle(topic = {}) {
   const raw = `${topic.tool_name ?? topic.topic ?? 'AI Tool'}: ${topic.hook ?? ''}`.trim()
-  return raw.length > TITLE_MAX_LENGTH ? `${raw.slice(0, TITLE_MAX_LENGTH - 1).trimEnd()}…` : raw
+  return truncateTitle(raw)
 }
 
 export function buildDescription(caption) {
@@ -16,6 +23,10 @@ export function buildDescription(caption) {
 
 export function buildShortsUrl(videoId) {
   return `https://youtube.com/shorts/${videoId}`
+}
+
+export function resolveOutputPath(outputLocation) {
+  return path.join(OUTPUT_ROOT, path.basename(outputLocation))
 }
 
 export async function refreshAccessToken({clientId, clientSecret, refreshToken}, fetchImpl = fetch) {
@@ -63,10 +74,13 @@ export async function publishToYouTube({outputLocation, title, description}, fet
   const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN
   if (!clientId || !clientSecret || !refreshToken) throw new Error('YOUTUBE_NOT_CONFIGURED')
   const accessToken = await refreshAccessToken({clientId, clientSecret, refreshToken}, fetchImpl)
-  const {size: fileSizeBytes} = await fsImpl.stat(outputLocation)
+  const videoPath = resolveOutputPath(outputLocation)
+  const {size: fileSizeBytes} = await fsImpl.stat(videoPath)
   const privacyStatus = process.env.YOUTUBE_PRIVACY_STATUS || 'public'
-  const uploadUrl = await initiateUpload({accessToken, title, description, privacyStatus, fileSizeBytes}, fetchImpl)
-  const videoBuffer = await fsImpl.readFile(outputLocation)
+  const videoTitle = truncateTitle(String(title ?? ''))
+  const videoDescription = buildDescription(description)
+  const uploadUrl = await initiateUpload({accessToken, title: videoTitle, description: videoDescription, privacyStatus, fileSizeBytes}, fetchImpl)
+  const videoBuffer = await fsImpl.readFile(videoPath)
   const videoId = await uploadVideoBytes({uploadUrl, videoBuffer}, fetchImpl)
   return {videoId, url: buildShortsUrl(videoId)}
 }

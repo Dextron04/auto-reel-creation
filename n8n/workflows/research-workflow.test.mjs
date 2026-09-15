@@ -565,7 +565,7 @@ test('Publish to YouTube posts to the renderer and fails the run loudly like Ins
   assert.ok(publishNode, 'missing youtube-publish node');
   assert.equal(publishNode.parameters.url, 'http://renderer:3001/v1/publish/youtube');
   assert.notEqual(publishNode.parameters.options.neverError, true, 'a publish failure must fail the execution, not be swallowed');
-  assert.equal(publishNode.parameters.options.timeout, 180000);
+  assert.equal(publishNode.parameters.options.timeout, 900000);
   assert.match(publishNode.parameters.jsonBody, /outputLocation/);
   assert.match(publishNode.parameters.jsonBody, /title/);
   assert.match(publishNode.parameters.jsonBody, /description/);

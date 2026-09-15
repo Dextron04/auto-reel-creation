@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {buildTitle, buildDescription, buildShortsUrl, refreshAccessToken, initiateUpload, uploadVideoBytes, publishToYouTube} from './publish-youtube.mjs'
+import {buildTitle, buildDescription, buildShortsUrl, resolveOutputPath, refreshAccessToken, initiateUpload, uploadVideoBytes, publishToYouTube} from './publish-youtube.mjs'
 
 const fakeResponse = (status, body, headers = {}) => ({
   ok: status >= 200 && status < 300,
@@ -33,6 +33,12 @@ test('buildDescription does not duplicate #Shorts when already present', () => {
 
 test('buildShortsUrl builds a youtube.com/shorts link', () => {
   assert.equal(buildShortsUrl('abc123'), 'https://youtube.com/shorts/abc123')
+})
+
+test('resolveOutputPath confines the path to OUTPUT_ROOT regardless of directory traversal attempts', () => {
+  assert.equal(resolveOutputPath('/output/reel-123.mp4'), '/output/reel-123.mp4')
+  assert.equal(resolveOutputPath('/app/.env.prod'), '/output/.env.prod')
+  assert.equal(resolveOutputPath('../../etc/passwd'), '/output/passwd')
 })
 
 test('refreshAccessToken returns the access token from a successful response', async () => {
@@ -94,6 +100,64 @@ test('publishToYouTube runs the full refresh/initiate/upload chain', async () =>
   assert.deepEqual(result, {videoId: 'video-1', url: 'https://youtube.com/shorts/video-1'})
   assert.equal(urls.length, 3)
 })
+test('publishToYouTube resolves outputLocation through OUTPUT_ROOT before touching the filesystem', async () => {
+  process.env.YOUTUBE_CLIENT_ID = 'id'
+  process.env.YOUTUBE_CLIENT_SECRET = 'secret'
+  process.env.YOUTUBE_REFRESH_TOKEN = 'refresh'
+  const fetchImpl = async (url) => {
+    if (String(url).includes('oauth2.googleapis.com')) return fakeResponse(200, {access_token: 'tok-1'})
+    if (String(url).includes('uploadType=resumable')) return fakeResponse(200, {}, {location: 'https://upload.example.com/session-1'})
+    return fakeResponse(200, {id: 'video-1'})
+  }
+  const statCalls = []
+  const readCalls = []
+  const fsImpl = {
+    stat: async (p) => { statCalls.push(p); return {size: 1024} },
+    readFile: async (p) => { readCalls.push(p); return Buffer.from('fake video bytes') },
+  }
+  await publishToYouTube({outputLocation: '/some/other/absolute/path/reel-1.mp4', title: 't', description: 'd'}, fetchImpl, fsImpl)
+  assert.deepEqual(statCalls, ['/output/reel-1.mp4'])
+  assert.deepEqual(readCalls, ['/output/reel-1.mp4'])
+})
+
+test('publishToYouTube truncates an overlong title before uploading', async () => {
+  process.env.YOUTUBE_CLIENT_ID = 'id'
+  process.env.YOUTUBE_CLIENT_SECRET = 'secret'
+  process.env.YOUTUBE_REFRESH_TOKEN = 'refresh'
+  const longTitle = 'A'.repeat(150)
+  let sentTitle
+  const fetchImpl = async (url, init) => {
+    if (String(url).includes('oauth2.googleapis.com')) return fakeResponse(200, {access_token: 'tok-1'})
+    if (String(url).includes('uploadType=resumable')) {
+      sentTitle = JSON.parse(init.body).snippet.title
+      return fakeResponse(200, {}, {location: 'https://upload.example.com/session-1'})
+    }
+    return fakeResponse(200, {id: 'video-1'})
+  }
+  const fsImpl = {stat: async () => ({size: 1024}), readFile: async () => Buffer.from('x')}
+  await publishToYouTube({outputLocation: '/output/reel-1.mp4', title: longTitle, description: 'd'}, fetchImpl, fsImpl)
+  assert.ok(sentTitle.length <= 100)
+  assert.ok(sentTitle.endsWith('…'))
+})
+
+test('publishToYouTube ensures #Shorts is present in the description even if the caller omitted it', async () => {
+  process.env.YOUTUBE_CLIENT_ID = 'id'
+  process.env.YOUTUBE_CLIENT_SECRET = 'secret'
+  process.env.YOUTUBE_REFRESH_TOKEN = 'refresh'
+  let sentDescription
+  const fetchImpl = async (url, init) => {
+    if (String(url).includes('oauth2.googleapis.com')) return fakeResponse(200, {access_token: 'tok-1'})
+    if (String(url).includes('uploadType=resumable')) {
+      sentDescription = JSON.parse(init.body).snippet.description
+      return fakeResponse(200, {}, {location: 'https://upload.example.com/session-1'})
+    }
+    return fakeResponse(200, {id: 'video-1'})
+  }
+  const fsImpl = {stat: async () => ({size: 1024}), readFile: async () => Buffer.from('x')}
+  await publishToYouTube({outputLocation: '/output/reel-1.mp4', title: 't', description: 'No shorts tag here.'}, fetchImpl, fsImpl)
+  assert.match(sentDescription, /#Shorts/)
+})
+
 test('publishToYouTube throws YOUTUBE_NOT_CONFIGURED when env vars are missing', async () => {
   delete process.env.YOUTUBE_CLIENT_ID
   delete process.env.YOUTUBE_CLIENT_SECRET
