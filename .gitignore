@@ -16,3 +16,4 @@ graphify-out/
 .worktrees/
 .swarm/
 ruvector.db
+.deploy-state/

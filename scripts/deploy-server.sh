@@ -24,14 +24,35 @@ echo "Running deployment regression suite..."
 node --test scripts/update-production-checkout.test.mjs
 node --test scripts/dashboard-deployment.test.mjs
 
-echo "Rebuilding and restarting containers..."
+echo "Rebuilding containers..."
+docker compose build renderer dashboard
+
 # docker compose's in-place recreate (stop -> rename to a temp id-prefixed name -> create ->
 # remove old) has been hitting a container-name conflict against itself on this host's colima
-# daemon, failing the whole deploy before it ever reaches the health checks below. Building
-# first and then explicitly stopping+removing the services we're about to recreate sidesteps
-# that rename step entirely: `up` only has to create fresh containers, never rename a running one.
-docker compose build renderer dashboard
-docker compose rm -sf renderer dashboard
+# daemon, so recreating a service goes through an explicit stop+remove+create instead, which
+# sidesteps that rename step entirely. But recreating BOTH services on every deploy meant a
+# dashboard-only change also bounced the renderer mid-render (killed an in-flight n8n render
+# request with ECONNRESET) — only recreate a service whose source actually changed since the
+# last successful deploy. (Image-id comparison doesn't work here: Docker embeds a build
+# timestamp in the image config, so the id changes on every build even with a 100% cache hit.)
+STATE_FILE=".deploy-state/last-deployed-commit"
+mkdir -p "$(dirname "$STATE_FILE")"
+current_commit=$(git rev-parse HEAD)
+last_commit=$(cat "$STATE_FILE" 2>/dev/null || true)
+
+recreate_if_source_changed() {
+  service=$1
+  path=$2
+  if [ -z "$last_commit" ] || ! git cat-file -e "$last_commit" 2>/dev/null || ! git diff --quiet "$last_commit" HEAD -- "$path"; then
+    echo "$service source changed (or no prior deploy recorded), recreating..."
+    docker compose rm -sf "$service"
+  else
+    echo "$service source unchanged since last deploy, leaving it running."
+  fi
+}
+recreate_if_source_changed renderer renderer/
+recreate_if_source_changed dashboard dashboard/
+
 docker compose up -d --remove-orphans
 
 check() {
@@ -74,4 +95,5 @@ for workflow in n8n/workflows/*.json; do
   node scripts/sync-n8n-workflow.mjs "$workflow"
 done
 
+echo "$current_commit" > "$STATE_FILE"
 echo "auto-reel-creation deployment is healthy."
