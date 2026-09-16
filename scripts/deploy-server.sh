@@ -19,6 +19,7 @@ npm --prefix dashboard test
 
 echo "Running n8n workflow regression suite..."
 node --test n8n/workflows/research-workflow.test.mjs
+node --test n8n/workflows/dev-tips-workflow.test.mjs
 
 echo "Running deployment regression suite..."
 node --test scripts/update-production-checkout.test.mjs

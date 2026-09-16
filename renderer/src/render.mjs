@@ -29,11 +29,15 @@ export async function renderReel(input) {
       ...turn,
       durationSeconds: await getMediaDurationSeconds(turn.audioPath, 'INVALID_AUDIO_DURATION'),
     })));
-    const timeline = buildDialogueTimeline(measuredDialogue, {maxDurationSeconds: 90, maxWordsPerCaption: 4});
+    // durationBudget lets a shorter format (a 10-15s tips reel) target its own min/max instead of
+    // the 30-60s show's bounds. Omitted entirely, it reproduces those original bounds exactly.
+    const minDurationSeconds = Number(input.durationBudget?.minSeconds) || 30;
+    const maxDurationSeconds = Number(input.durationBudget?.maxSeconds) || 90;
+    const timeline = buildDialogueTimeline(measuredDialogue, {maxDurationSeconds, maxWordsPerCaption: 4});
     request = {
       ...request,
       ...timeline,
-      durationInFrames: getReelDurationInFrames(timeline.durationSeconds, {maxDurationSeconds: 90}),
+      durationInFrames: getReelDurationInFrames(timeline.durationSeconds, {maxDurationSeconds, minDurationSeconds}),
       dialogue: measuredDialogue,
       voiceOverlay: null,
     };

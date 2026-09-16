@@ -1,6 +1,7 @@
 export function validateDialogue(dialogue = [], storyboard = []) {
-  const errors = []; const expected = ['peter','stewie','peter','stewie','peter','stewie'];
-  if (dialogue.length !== 6) errors.push('DIALOGUE_REQUIRES_SIX_TURNS');
+  const errors = [];
+  if (!dialogue.length || dialogue.length % 2 !== 0) errors.push('DIALOGUE_REQUIRES_ALTERNATING_TURNS');
+  const expected = dialogue.map((_, i) => (i % 2 === 0 ? 'peter' : 'stewie'));
   dialogue.forEach((turn, i) => { if (String(turn.speaker).toLowerCase() !== expected[i]) errors.push(`DIALOGUE_SPEAKER_ORDER:${i}`); });
   for (const cue of dialogue.flatMap(turn => turn.visuals || [])) if (!dialogue[cue.turn_index]?.text?.includes(cue.phrase)) errors.push(`VISUAL_ANCHOR_MISSING:${cue.turn_index}`);
   if (storyboard.length && dialogue.flatMap(t => t.visuals || []).length < storyboard.length) errors.push('VISUAL_CUE_COVERAGE');

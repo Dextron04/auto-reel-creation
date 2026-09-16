@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {topicHistoryPath} from './topic-history-path.mjs';
 import {renderReel} from './render.mjs';
 import {discoverVisuals} from './asset-discovery.mjs';
 import {publishToInstagram, diagnoseInstagramContainer} from './publish-instagram.mjs';
@@ -43,17 +44,21 @@ app.post('/v1/publish/youtube', async (req, res) => {
   try { res.json(await publishToYouTube(req.body)); }
   catch (error) { res.status(400).json({error: error.message}); }
 });
-app.get('/v1/topic-history', async (_req, res) => {
-  try { res.json({recent: await readTopicHistory()}); }
+app.get('/v1/topic-history', async (req, res) => {
+  try { res.json({recent: await readTopicHistory(topicHistoryPath(req.query?.namespace))}); }
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.post('/v1/topic-history', async (req, res) => {
-  try { res.json({recent: await recordTopic(req.body), render: req.body.render}); }
+  try {
+    const historyPath = topicHistoryPath(req.body?.namespace);
+    res.json({recent: await recordTopic(req.body, historyPath), render: req.body.render});
+  }
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.post('/v1/topic-history/select', async (req, res) => {
   try {
-    const history = await readTopicHistory();
+    const historyPath = topicHistoryPath(req.body?.namespace);
+    const history = await readTopicHistory(historyPath);
     res.json({...req.body, research: selectUnusedTopic(req.body?.research, history)});
   }
   catch (error) { res.status(400).json({error: error.message}); }

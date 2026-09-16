@@ -9,11 +9,13 @@ import {validateVisualSelection} from './asset-discovery.mjs';
 // Every content-matching variant tried here (raw substring, ellipsis-tolerant, suffix-tolerant,
 // cross-turn search) kept being defeated by a new flavor of ordinary LLM paraphrase drift; the
 // render pipeline was already built to not need this enforced upstream.
-export function validateProductionPackage({dialogue = [], visuals = [], storyboard = []} = {}) {
+export function validateProductionPackage({dialogue = [], visuals = [], storyboard = [], minimumImages} = {}) {
   const errors = [];
   const dialogueResult = validateDialogue(dialogue, storyboard);
   errors.push(...dialogueResult.errors);
-  try { validateVisualSelection(visuals); }
+  // requiredTurns tracks whatever length dialogue actually is (6 for the tool-trend show, fewer
+  // for a shorter reel) rather than a value hardcoded to the original 6-turn format.
+  try { validateVisualSelection(visuals, {requiredTurns: dialogue.length || 6, minimumImages: Number(minimumImages) || 8}); }
   catch (error) { errors.push(error.message); }
   for (const visual of visuals) {
     const turn = visual.startTurn;

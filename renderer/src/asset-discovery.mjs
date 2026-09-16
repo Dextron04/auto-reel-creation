@@ -491,7 +491,7 @@ export async function discoverVisuals(input) {
   }
   for (const shot of await Promise.all([...screenshots.values()])) if (!shot.error) for (const slice of shot) await fs.unlink(slice.localPath).catch(()=>{});
   let validation; let validationError;
-  try { validation = validateVisualSelection(visuals); }
+  try { validation = validateVisualSelection(visuals, {requiredTurns: input.dialogue?.length || 6, minimumImages: Number(input.minimumImages) || 8}); }
   catch (error) { validationError = error; report.push({status:'visual_preflight_failed',error:error.message}); }
   await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify({visuals,report,validation:validation ?? null},null,2));
   if (validationError) throw validationError;
