@@ -238,10 +238,11 @@ test('Claude tips-dialogue router enforces four turns and a tight word budget', 
 
   // A real production run (2026-09-16) returned a well-formed, on-topic dialogue that measured
   // 23.04s of actual audio for 48 words -- about 2.08 words/second for this show's TTS voice, far
-  // slower than this code originally assumed. The word-count ceiling here is calibrated against
-  // that measured rate (32 words tops out around 15.4s) specifically so a dialogue this long is
-  // caught HERE, before spending a TTS call, an image search, and the editorial gate on a script
-  // that render.mjs's measured-audio durationBudget (max 18s) would reject anyway.
+  // slower than this code originally assumed. The word-count ceiling here (36, about 8 words of
+  // headway over the prompt's own 20-28 target -- not baked into the prompt itself, just the
+  // acceptance check) tops out around 17.3s at that measured rate, safely under render.mjs's 18s
+  // cap, so a dialogue this long is caught HERE -- before a TTS call, an image search, and the
+  // editorial gate all run on a script render.mjs would reject anyway.
   const realProductionTurns = [
     {speaker: 'peter', text: 'One voice model, 97 languages, zero language detection code.'},
     {speaker: 'stewie', text: 'Yeah, but you still need custom WebSocket plumbing to make it work.'},
