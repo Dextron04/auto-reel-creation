@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as operations from './operations.mjs';
 
 import {
   executionListPath,
@@ -93,6 +94,35 @@ test('executionListPath requests lightweight paginated summaries', () => {
     executionListPath('workflow 1', 'page 2'),
     '/api/v1/executions?workflowId=workflow+1&limit=50&cursor=page+2',
   );
+});
+
+test('fetchExecutionPages includes active runs that n8n omits from the default history list', async () => {
+  assert.equal(typeof operations.fetchExecutionPages, 'function');
+  const requestedPaths = [];
+  const fetcher = async path => {
+    requestedPaths.push(path);
+    if (path.includes('status=running')) {
+      return {
+        data: [{id: '61', status: 'running', mode: 'webhook', startedAt: '2026-09-16T04:18:00.000Z', stoppedAt: null, finished: false}],
+      };
+    }
+    return {
+      data: [{id: '60', status: 'success', mode: 'trigger', startedAt: '2026-09-15T23:19:00.000Z', stoppedAt: '2026-09-15T23:29:00.000Z', finished: true}],
+      nextCursor: 'older-page',
+    };
+  };
+
+  const result = await operations.fetchExecutionPages(fetcher, 'workflow 1');
+
+  assert.deepEqual(result.data.map(execution => [execution.id, execution.status]), [
+    ['61', 'running'],
+    ['60', 'success'],
+  ]);
+  assert.equal(result.nextCursor, 'older-page');
+  assert.deepEqual(requestedPaths, [
+    '/api/v1/executions?workflowId=workflow+1&limit=50',
+    '/api/v1/executions?workflowId=workflow+1&limit=50&status=running',
+  ]);
 });
 
 test('mergeExecutionDetails enriches only matching execution summaries', () => {

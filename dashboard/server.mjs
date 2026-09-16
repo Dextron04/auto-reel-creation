@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
-  executionListPath,
+  fetchExecutionPages,
   formatScheduledRun,
   mapExecution,
   mergeExecutionDetails,
@@ -247,7 +247,7 @@ app.get('/api/executions', async (req, res) => {
   try {
     const {id, nodes: workflowNodes} = await fetchWorkflow();
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
-    const list = await n8nFetch(executionListPath(id, cursor));
+    const list = await fetchExecutionPages(n8nFetch, id, cursor);
     const summaries = (list.data ?? []).map(execution => mapExecution(execution));
     const detailedExecutions = await Promise.all(
       summaries
@@ -282,7 +282,7 @@ app.post('/api/run', async (_req, res) => {
   manualTriggerPending = true;
   try {
     const workflowId = await findWorkflowId();
-    const list = await n8nFetch(executionListPath(workflowId));
+    const list = await fetchExecutionPages(n8nFetch, workflowId);
     const result = await triggerManualRun(list.data ?? [], () => n8nFetch('/webhook/reel-dashboard-run', {
       method: 'POST',
       body: JSON.stringify({source: 'reel-operations-dashboard'}),

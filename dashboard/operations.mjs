@@ -102,10 +102,23 @@ export function formatScheduledRun(date, timeZone = 'UTC') {
   }).format(date);
 }
 
-export function executionListPath(workflowId, cursor = null) {
+export function executionListPath(workflowId, cursor = null, status = null) {
   const params = new URLSearchParams({workflowId, limit: '50'});
   if (cursor) params.set('cursor', cursor);
+  if (status) params.set('status', status);
   return `/api/v1/executions?${params}`;
+}
+
+export async function fetchExecutionPages(fetcher, workflowId, cursor = null) {
+  const [history, running] = await Promise.all([
+    fetcher(executionListPath(workflowId, cursor)),
+    fetcher(executionListPath(workflowId, null, 'running')),
+  ]);
+  const byId = new Map();
+  for (const execution of [...(running.data ?? []), ...(history.data ?? [])]) {
+    if (!byId.has(execution.id)) byId.set(execution.id, execution);
+  }
+  return {data: [...byId.values()], nextCursor: history.nextCursor ?? null};
 }
 
 export function manualRunAvailability(executions) {
