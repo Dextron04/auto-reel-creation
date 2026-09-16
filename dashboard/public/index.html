@@ -11,10 +11,16 @@
 <body>
   <div class="app-shell">
     <header class="topbar">
-      <a class="brand" href="#live" aria-label="Reel control dashboard home">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 5h7v7H6V5Zm13 0h7v7h-7V5ZM6 19h7v7H6v-7Zm13 0h7v7h-7v-7Z"/><path class="brand-signal" d="M15 8.5h2v15h-2z"/></svg>
-        <span>Reel control</span>
-      </a>
+      <div class="brand-group">
+        <a class="brand" href="#live" aria-label="Reel control dashboard home">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M6 5h7v7H6V5Zm13 0h7v7h-7V5ZM6 19h7v7H6v-7Zm13 0h7v7h-7v-7Z"/><path class="brand-signal" d="M15 8.5h2v15h-2z"/></svg>
+          <span>Reel control</span>
+        </a>
+        <label class="workflow-picker" for="workflowSelect">
+          <span class="visually-hidden">Workflow</span>
+          <select id="workflowSelect" disabled><option>Loading workflows…</option></select>
+        </label>
+      </div>
       <div class="sync-state" aria-live="polite">
         <span class="sync-dot" id="syncDot"></span>
         <span id="lastUpdated">Connecting…</span>
@@ -79,19 +85,22 @@
 
           <section class="control-panel schedule-panel" aria-labelledby="schedule-title">
             <div class="panel-heading"><div><p class="section-kicker">Automation</p><h2 id="schedule-title">Schedule</h2></div></div>
-            <div class="preset-row" role="group" aria-label="Schedule presets">
-              <button class="preset" data-cron="0 9,17 * * *">9am + 5pm</button>
-              <button class="preset" data-cron="0 9 * * *">Daily 9am</button>
-              <button class="preset" data-cron="0 */6 * * *">Every 6h</button>
-              <button class="preset" data-cron="0 */4 * * *">Every 4h</button>
+            <p class="field-help" id="noScheduleMessage" hidden>This workflow has no independent schedule — it only runs when dispatched by another workflow (e.g. the round-robin orchestrator).</p>
+            <div id="scheduleEditor">
+              <div class="preset-row" role="group" aria-label="Schedule presets">
+                <button class="preset" data-cron="0 9,17 * * *">9am + 5pm</button>
+                <button class="preset" data-cron="0 9 * * *">Daily 9am</button>
+                <button class="preset" data-cron="0 */6 * * *">Every 6h</button>
+                <button class="preset" data-cron="0 */4 * * *">Every 4h</button>
+              </div>
+              <label class="field-label" for="cronInput">Cron expression</label>
+              <div class="schedule-row">
+                <input type="text" id="cronInput" inputmode="text" autocomplete="off" placeholder="0 9,17 * * *" />
+                <button class="save-button" id="saveSchedule">Save schedule</button>
+              </div>
+              <p class="field-help" id="scheduleSource"></p>
+              <p class="field-message" id="scheduleMsg" aria-live="polite"></p>
             </div>
-            <label class="field-label" for="cronInput">Cron expression</label>
-            <div class="schedule-row">
-              <input type="text" id="cronInput" inputmode="text" autocomplete="off" placeholder="0 9,17 * * *" />
-              <button class="save-button" id="saveSchedule">Save schedule</button>
-            </div>
-            <p class="field-help" id="scheduleSource"></p>
-            <p class="field-message" id="scheduleMsg" aria-live="polite"></p>
           </section>
         </aside>
       </div>

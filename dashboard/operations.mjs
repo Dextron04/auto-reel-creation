@@ -166,6 +166,39 @@ export function workflowStage(name, type = '') {
   return stageRules.find(([, pattern]) => pattern.test(searchable))?.[0] ?? 'prepare';
 }
 
+// Picks a workflow from an n8n workflow list by exact id, then exact name, falling back to a
+// default name (the original show) when no selector is given -- the same "prefer the active one"
+// rule as findWorkflowId always used, generalized so any of the project's workflows can be picked.
+export function selectWorkflow(list, requested, fallbackName) {
+  const candidates = Array.isArray(list) ? list : [];
+  if (requested) {
+    const byId = candidates.find(workflow => workflow.id === requested);
+    if (byId) return byId;
+    const byName = candidates.filter(workflow => workflow.name === requested);
+    if (byName.length) return byName.find(workflow => workflow.active) ?? byName[0];
+  }
+  const fallback = candidates.filter(workflow => workflow.name === fallbackName);
+  return fallback.find(workflow => workflow.active) ?? fallback[0] ?? null;
+}
+
+// Not every workflow has a schedule trigger -- the topic workers are dispatched only by the
+// round-robin orchestrator's Execute Workflow node, on purpose, so they never run on their own.
+export function findScheduleTriggerNode(workflow) {
+  return (workflow?.nodes ?? []).find(node => node.type === 'n8n-nodes-base.scheduleTrigger') ?? null;
+}
+
+export function cronFromScheduleNode(node) {
+  return node?.parameters?.rule?.interval?.[0]?.expression ?? null;
+}
+
+// Every workflow in this project keeps a webhook trigger for standalone manual runs, at its own
+// unique path -- reading it from the workflow definition means the dashboard never needs a
+// hardcoded path-per-workflow table that drifts out of sync.
+export function findManualTriggerPath(workflow) {
+  const node = (workflow?.nodes ?? []).find(node => node.type === 'n8n-nodes-base.webhook');
+  return node?.parameters?.path ?? null;
+}
+
 export function workflowTopology(workflow = {}) {
   const nodes = Array.isArray(workflow.nodes) ? workflow.nodes : [];
   const byName = new Map(nodes.map((node, sourceIndex) => [node.name, {

@@ -3,11 +3,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {
+  cronFromScheduleNode,
   fetchExecutionPages,
+  findManualTriggerPath,
+  findScheduleTriggerNode,
   formatScheduledRun,
   mapExecution,
   mergeExecutionDetails,
   nextCronOccurrence,
+  selectWorkflow,
   triggerManualRun,
   workflowTopology,
 } from './operations.mjs';
@@ -22,10 +26,13 @@ const N8N_API_KEY = process.env.N8N_API_KEY ?? '';
 const RENDERER_BASE_URL = process.env.RENDERER_URL_PUBLIC ?? 'http://localhost:3001';
 const PORT = process.env.DASHBOARD_PORT ?? 4000;
 const SCHEDULE_TIMEZONE = process.env.GENERIC_TIMEZONE ?? 'America/Chicago';
-const SCHEDULE_NODE_NAME = 'Research Twice Daily';
+const DEFAULT_WORKFLOW_NAME = 'Research and Render Local AI Reel';
 
-let cachedWorkflowId = null;
-let cachedWorkflowGraph = null;
+// Keyed by the RESOLVED n8n workflow id, not by the request's selector string, so "the original
+// show" and "id abc123" share one cache entry once resolved. Selection itself is cheap enough
+// (one small list call) to skip caching and just resolve fresh on every request — the heavier
+// full node list is what's worth caching.
+const workflowGraphCache = new Map();
 const executionDetailCache = new Map();
 let manualTriggerPending = false;
 
@@ -41,24 +48,23 @@ async function n8nFetch(urlPath, opts = {}) {
   return body;
 }
 
-async function findWorkflowId() {
-  if (cachedWorkflowId) return cachedWorkflowId;
+// `requested` is whatever the dashboard's workflow selector sent (an id or an exact name), or
+// undefined for "whatever the page defaults to" — always the original show, so old bookmarks
+// and the existing deployment status check keep working unchanged.
+async function resolveWorkflow(requested) {
   const list = await n8nFetch('/api/v1/workflows?limit=250');
-  // Multiple workflows can share a name (a stale re-import left over from manual UI work, for
-  // example) — the active one is the one actually running scheduled/manual executions.
-  const matches = (list.data ?? []).filter(w => w.name === 'Research and Render Local AI Reel');
-  const match = matches.find(w => w.active) ?? matches[0];
+  const match = selectWorkflow(list.data ?? [], requested, DEFAULT_WORKFLOW_NAME);
   if (!match) throw new Error('N8N_WORKFLOW_NOT_FOUND');
-  cachedWorkflowId = match.id;
-  return cachedWorkflowId;
+  return match;
 }
 
-async function fetchWorkflow({fresh = false} = {}) {
-  const id = await findWorkflowId();
-  if (!fresh && cachedWorkflowGraph) return {id, ...cachedWorkflowGraph};
-  const workflow = await n8nFetch(`/api/v1/workflows/${id}`);
-  cachedWorkflowGraph = {workflow, nodes: workflowTopology(workflow)};
-  return {id, ...cachedWorkflowGraph};
+async function fetchWorkflow(requested, {fresh = false} = {}) {
+  const resolved = await resolveWorkflow(requested);
+  if (!fresh && workflowGraphCache.has(resolved.id)) return {id: resolved.id, ...workflowGraphCache.get(resolved.id)};
+  const workflow = await n8nFetch(`/api/v1/workflows/${resolved.id}`);
+  const graph = {workflow, nodes: workflowTopology(workflow)};
+  workflowGraphCache.set(resolved.id, graph);
+  return {id: resolved.id, ...graph};
 }
 
 async function fetchExecutionDetail(summary, workflowNodes) {
@@ -74,33 +80,28 @@ async function fetchExecutionDetail(summary, workflowNodes) {
   return detail;
 }
 
-function findScheduleNode(workflow) {
-  const node = workflow.nodes.find(n => n.name === SCHEDULE_NODE_NAME);
-  if (!node) throw new Error('SCHEDULE_NODE_NOT_FOUND');
-  return node;
-}
-
-function cronFromNode(node) {
-  return node.parameters?.rule?.interval?.[0]?.expression ?? null;
-}
-
 function validateCron(cron) {
   const fields = String(cron).trim().split(/\s+/);
   if (fields.length !== 5) return false;
   return fields.every(f => /^[0-9*/,-]+$/.test(f));
 }
 
+// The only workflow this file fallback can represent is the original show it's checked in for —
+// it's a "no N8N_API_KEY" dev convenience, not a general mechanism, so it's never consulted for
+// an explicit workflow selection (that always requires the API to even list workflows).
 async function readLocalScheduleFile() {
   const raw = await fs.readFile(WORKFLOW_PATH, 'utf8');
   const workflow = JSON.parse(raw);
-  const node = findScheduleNode(workflow);
-  return cronFromNode(node);
+  const node = findScheduleTriggerNode(workflow);
+  if (!node) throw new Error('SCHEDULE_NODE_NOT_FOUND');
+  return cronFromScheduleNode(node);
 }
 
 async function writeLocalScheduleFile(cron) {
   const raw = await fs.readFile(WORKFLOW_PATH, 'utf8');
   const workflow = JSON.parse(raw);
-  const node = findScheduleNode(workflow);
+  const node = findScheduleTriggerNode(workflow);
+  if (!node) throw new Error('SCHEDULE_NODE_NOT_FOUND');
   node.parameters.rule.interval[0].expression = cron;
   await fs.writeFile(WORKFLOW_PATH, JSON.stringify(workflow, null, 2) + '\n');
 }
@@ -125,7 +126,18 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/videos', express.static(OUTPUT_DIR));
 app.get('/health', (_req, res) => res.json({ready: true, service: 'dashboard'}));
 
-app.get('/api/status', async (_req, res) => {
+app.get('/api/workflows', async (_req, res) => {
+  if (!n8nConfigured()) return res.json({configured: false, workflows: [], defaultName: DEFAULT_WORKFLOW_NAME});
+  try {
+    const list = await n8nFetch('/api/v1/workflows?limit=250');
+    const workflows = (list.data ?? [])
+      .map(w => ({id: w.id, name: w.name, active: w.active}))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({configured: true, workflows, defaultName: DEFAULT_WORKFLOW_NAME});
+  } catch (error) { res.status(500).json({configured: true, workflows: [], defaultName: DEFAULT_WORKFLOW_NAME, error: error.message}); }
+});
+
+app.get('/api/status', async (req, res) => {
   const [renderer, n8nHealth] = await Promise.all([
     fetchHealth(`${RENDERER_BASE_URL}/health`),
     fetchHealth(`${N8N_BASE_URL}/healthz`),
@@ -135,7 +147,7 @@ app.get('/api/status', async (_req, res) => {
   let n8nError = null;
   if (n8nConfigured()) {
     try {
-      const {id, workflow: wf, nodes} = await fetchWorkflow({fresh: true});
+      const {id, workflow: wf, nodes} = await fetchWorkflow(req.query.workflow, {fresh: true});
       workflow = {id, name: wf.name, active: wf.active, updatedAt: wf.updatedAt, nodeCount: nodes.length};
     } catch (error) { n8nError = error.message; }
   }
@@ -158,19 +170,15 @@ app.get('/api/status', async (_req, res) => {
   });
 });
 
-app.get('/api/schedule', async (_req, res) => {
+app.get('/api/schedule', async (req, res) => {
   try {
     if (n8nConfigured()) {
-      const id = await findWorkflowId();
-      const wf = await n8nFetch(`/api/v1/workflows/${id}`);
-      const node = findScheduleNode(wf);
-      const cron = cronFromNode(node);
-      const nextRun = wf.active ? nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE) : null;
+      const {workflow: wf} = await fetchWorkflow(req.query.workflow, {fresh: true});
+      const node = findScheduleTriggerNode(wf);
+      const cron = cronFromScheduleNode(node);
+      const nextRun = node && wf.active ? nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE) : null;
       return res.json({
-        cron,
-        source: 'n8n',
-        active: wf.active,
-        timezone: SCHEDULE_TIMEZONE,
+        cron, hasSchedule: Boolean(node), source: 'n8n', active: wf.active, timezone: SCHEDULE_TIMEZONE,
         nextRunAt: nextRun?.toISOString() ?? null,
         nextRunLabel: nextRun ? formatScheduledRun(nextRun, SCHEDULE_TIMEZONE) : null,
       });
@@ -178,9 +186,7 @@ app.get('/api/schedule', async (_req, res) => {
     const cron = await readLocalScheduleFile();
     const nextRun = nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE);
     res.json({
-      cron,
-      source: 'file',
-      timezone: SCHEDULE_TIMEZONE,
+      cron, hasSchedule: true, source: 'file', timezone: SCHEDULE_TIMEZONE,
       nextRunAt: nextRun?.toISOString() ?? null,
       nextRunLabel: nextRun ? formatScheduledRun(nextRun, SCHEDULE_TIMEZONE) : null,
     });
@@ -188,23 +194,26 @@ app.get('/api/schedule', async (_req, res) => {
 });
 
 app.post('/api/schedule', async (req, res) => {
-  const {cron} = req.body ?? {};
+  const {cron, workflow: requested} = req.body ?? {};
   if (!validateCron(cron)) return res.status(400).json({error: 'Invalid cron expression — expected 5 space-separated fields.'});
   if (!n8nConfigured()) return res.status(400).json({error: 'N8N_API_KEY not configured — cannot edit the live schedule.'});
 
   try {
-    const id = await findWorkflowId();
-    const wf = await n8nFetch(`/api/v1/workflows/${id}`);
-    const node = findScheduleNode(wf);
+    const {id, workflow: wf} = await fetchWorkflow(requested, {fresh: true});
+    const node = findScheduleTriggerNode(wf);
+    if (!node) return res.status(400).json({error: 'This workflow has no independent schedule to edit — it runs only when dispatched by another workflow.'});
     node.parameters.rule.interval[0].expression = cron;
     await n8nFetch(`/api/v1/workflows/${id}`, {
       method: 'PUT',
       body: JSON.stringify({name: wf.name, nodes: wf.nodes, connections: wf.connections, settings: wf.settings ?? {}}),
     });
+    workflowGraphCache.delete(id);
 
     let fileWarning = null;
-    try { await writeLocalScheduleFile(cron); }
-    catch (error) { fileWarning = `Live schedule updated, but failed to sync n8n/workflows/research-and-render-reel.json: ${error.message}`; }
+    if (!requested || wf.name === DEFAULT_WORKFLOW_NAME) {
+      try { await writeLocalScheduleFile(cron); }
+      catch (error) { fileWarning = `Live schedule updated, but failed to sync n8n/workflows/research-and-render-reel.json: ${error.message}`; }
+    }
 
     const nextRun = nextCronOccurrence(cron, new Date(), SCHEDULE_TIMEZONE);
     res.json({
@@ -245,7 +254,7 @@ app.get('/api/videos', async (_req, res) => {
 app.get('/api/executions', async (req, res) => {
   if (!n8nConfigured()) return res.json({configured: false, recent: []});
   try {
-    const {id, nodes: workflowNodes} = await fetchWorkflow();
+    const {id, nodes: workflowNodes} = await fetchWorkflow(req.query.workflow);
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
     const list = await fetchExecutionPages(n8nFetch, id, cursor);
     const summaries = (list.data ?? []).map(execution => mapExecution(execution));
@@ -271,7 +280,7 @@ app.get('/api/executions', async (req, res) => {
   } catch (error) { res.status(500).json({configured: true, error: error.message, executions: [], running: [], nextCursor: null}); }
 });
 
-app.post('/api/run', async (_req, res) => {
+app.post('/api/run', async (req, res) => {
   if (!n8nConfigured()) {
     return res.status(503).json({error: 'N8N_API_KEY not configured — cannot start the workflow.'});
   }
@@ -281,9 +290,11 @@ app.post('/api/run', async (_req, res) => {
 
   manualTriggerPending = true;
   try {
-    const workflowId = await findWorkflowId();
-    const list = await fetchExecutionPages(n8nFetch, workflowId);
-    const result = await triggerManualRun(list.data ?? [], () => n8nFetch('/webhook/reel-dashboard-run', {
+    const {id, workflow: wf} = await fetchWorkflow(req.body?.workflow);
+    const webhookPath = findManualTriggerPath(wf);
+    if (!webhookPath) return res.status(400).json({error: 'This workflow has no manual trigger webhook.'});
+    const list = await fetchExecutionPages(n8nFetch, id);
+    const result = await triggerManualRun(list.data ?? [], () => n8nFetch(`/webhook/${webhookPath}`, {
       method: 'POST',
       body: JSON.stringify({source: 'reel-operations-dashboard'}),
     }));

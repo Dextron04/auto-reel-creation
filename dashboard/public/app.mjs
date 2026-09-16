@@ -22,7 +22,17 @@ const state = {
   manualRunError: null,
   executionTimer: null,
   executionLoading: false,
+  workflows: [],
+  selectedWorkflowId: null,
+  hasSchedule: true,
+  lastStatus: null,
 };
+
+function withWorkflow(url) {
+  if (!state.selectedWorkflowId) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}workflow=${encodeURIComponent(state.selectedWorkflowId)}`;
+}
 
 function fmtDate(value) {
   return value ? new Date(value).toLocaleString([], {dateStyle:'medium', timeStyle:'short'}) : '—';
@@ -73,19 +83,34 @@ function service(name, health, detail) {
   return `<div class="service"><span class="service-dot ${tone}"></span><strong>${escapeHtml(name)}</strong><span>${escapeHtml(detail)}</span></div>`;
 }
 
-async function loadStatus() {
-  const status = await getJSON('/api/status');
+function workflowStatusDetail(workflow) {
+  if (!workflow) return 'unknown';
+  if (!workflow.active) return 'paused';
+  // "scheduled" only means something for a workflow that actually has a cron trigger -- a topic
+  // worker is "active" in n8n (its manual webhook is live) but only ever runs when dispatched.
+  return state.hasSchedule ? 'scheduled' : 'active · dispatched only';
+}
+
+function renderServiceRibbon() {
+  if (!state.lastStatus) return;
+  const status = state.lastStatus;
   const workflow = status.n8n.workflow;
-  state.apiConfigured = status.n8n.apiConfigured;
   $('#services').innerHTML = [
     service('Renderer', status.renderer.ok, status.renderer.ok ? 'ready' : 'offline'),
     service('n8n', status.n8n.ok, status.n8n.ok ? 'connected' : 'offline'),
-    service('Workflow', workflow ? workflow.active : null, workflow ? (workflow.active ? 'scheduled' : 'paused') : 'unknown'),
+    service('Workflow', workflow ? workflow.active : null, workflowStatusDetail(workflow)),
     service('API', status.n8n.apiConfigured ? true : null, status.n8n.apiConfigured ? 'live data' : 'key missing'),
   ].join('');
   $('#workflowSummary').textContent = workflow
-    ? `${workflow.nodeCount ?? state.workflowNodes.length} production nodes · ${workflow.active ? 'scheduled automation is active' : 'workflow is paused'}. Live execution data refreshes every few seconds.`
+    ? `${workflow.nodeCount ?? state.workflowNodes.length} production nodes · ${workflow.active ? (state.hasSchedule ? 'scheduled automation is active' : 'active, dispatched by another workflow') : 'workflow is paused'}. Live execution data refreshes every few seconds.`
     : 'Connect the n8n API to inspect the production workflow and its live node state.';
+}
+
+async function loadStatus() {
+  const status = await getJSON(withWorkflow('/api/status'));
+  state.apiConfigured = status.n8n.apiConfigured;
+  state.lastStatus = status;
+  renderServiceRibbon();
   const banners = [...(status.envWarnings ?? [])];
   if (status.n8n.error) banners.push({level:'bad', message:`n8n API: ${status.n8n.error}`});
   $('#banners').innerHTML = banners.map(item => `<div class="banner ${escapeHtml(item.level ?? 'warn')}">${escapeHtml(item.message)}</div>`).join('');
@@ -102,7 +127,18 @@ function renderNextRun() {
 }
 
 async function loadSchedule() {
-  const schedule = await getJSON('/api/schedule');
+  const schedule = await getJSON(withWorkflow('/api/schedule'));
+  state.hasSchedule = schedule.hasSchedule !== false;
+  renderServiceRibbon();
+  $('#scheduleEditor').hidden = !state.hasSchedule;
+  $('#noScheduleMessage').hidden = state.hasSchedule;
+  if (!state.hasSchedule) {
+    state.nextRunAt = null;
+    state.nextRunLabel = null;
+    $('#nextRunTime').textContent = 'Dispatched';
+    $('#nextRunDetail').textContent = 'Runs only when triggered by another workflow';
+    return;
+  }
   $('#cronInput').value = schedule.cron ?? '';
   state.nextRunAt = schedule.nextRunAt;
   state.nextRunLabel = schedule.nextRunLabel;
@@ -239,7 +275,7 @@ async function loadExecutions(reset = true) {
   state.executionLoading = true;
   try {
     const cursor = reset ? null : state.nextCursor;
-    const data = await getJSON(`/api/executions${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+    const data = await getJSON(withWorkflow(`/api/executions${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`));
     state.apiConfigured = data.configured;
     if (!data.configured) {
       state.executions = [];
@@ -306,7 +342,7 @@ async function startWorkflow() {
   state.manualRunError = null;
   renderManualRunControl();
   try {
-    await getJSON('/api/run', {method:'POST'});
+    await getJSON('/api/run', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({workflow:state.selectedWorkflowId})});
     for (let attempt = 0; attempt < 8; attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 650));
       await loadExecutions(true);
@@ -327,6 +363,39 @@ async function refreshAll() {
   button.classList.remove('loading');
 }
 
+async function loadWorkflows() {
+  const select = $('#workflowSelect');
+  try {
+    const data = await getJSON('/api/workflows');
+    state.workflows = data.workflows ?? [];
+    if (!data.configured || !state.workflows.length) {
+      select.innerHTML = '<option value="">Default workflow</option>';
+      select.disabled = true;
+      return;
+    }
+    const defaultEntry = state.workflows.find(workflow => workflow.name === data.defaultName) ?? state.workflows[0];
+    if (state.selectedWorkflowId == null) state.selectedWorkflowId = defaultEntry?.id ?? null;
+    const stillExists = state.workflows.some(workflow => workflow.id === state.selectedWorkflowId);
+    if (!stillExists) state.selectedWorkflowId = defaultEntry?.id ?? null;
+    select.innerHTML = state.workflows.map(workflow => `<option value="${escapeHtml(workflow.id)}"${workflow.id === state.selectedWorkflowId ? ' selected' : ''}>${escapeHtml(workflow.name)}${workflow.active ? '' : ' (paused)'}</option>`).join('');
+    select.disabled = false;
+  } catch {
+    select.innerHTML = '<option value="">Default workflow</option>';
+    select.disabled = true;
+  }
+}
+
+function switchWorkflow(workflowId) {
+  state.selectedWorkflowId = workflowId || null;
+  state.executions = [];
+  state.workflowNodes = [];
+  state.nextCursor = null;
+  state.historyExpanded = false;
+  state.manualRunError = null;
+  refreshAll();
+}
+
+$('#workflowSelect').addEventListener('change', event => switchWorkflow(event.target.value));
 $$('.run-workflow').forEach(button => button.addEventListener('click', startWorkflow));
 $$('.preset').forEach(button => button.addEventListener('click', () => { $('#cronInput').value = button.dataset.cron; }));
 $$('.filter').forEach(button => button.addEventListener('click', () => {
@@ -340,7 +409,7 @@ $('#saveSchedule').addEventListener('click', async () => {
   const message = $('#scheduleMsg');
   message.textContent = 'Saving schedule…';
   try {
-    const result = await getJSON('/api/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cron:$('#cronInput').value.trim()})});
+    const result = await getJSON('/api/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({cron:$('#cronInput').value.trim(), workflow:state.selectedWorkflowId})});
     message.innerHTML = `<span class="good-text">Schedule saved.</span>${result.fileWarning ? ` <span class="warn-text">${escapeHtml(result.fileWarning)}</span>` : ''}`;
     await Promise.all([loadSchedule(), loadStatus()]);
   } catch (error) {
@@ -358,4 +427,4 @@ setInterval(() => {
 }, 1000);
 setInterval(() => Promise.allSettled([loadStatus(), loadSchedule(), loadVideos()]), 30000);
 
-refreshAll();
+loadWorkflows().then(refreshAll);

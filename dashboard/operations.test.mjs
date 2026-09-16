@@ -3,15 +3,63 @@ import assert from 'node:assert/strict';
 import * as operations from './operations.mjs';
 
 import {
+  cronFromScheduleNode,
   executionListPath,
+  findManualTriggerPath,
+  findScheduleTriggerNode,
   formatScheduledRun,
   manualRunAvailability,
   triggerManualRun,
   mapExecution,
   mergeExecutionDetails,
   nextCronOccurrence,
+  selectWorkflow,
   workflowTopology,
 } from './operations.mjs';
+
+test('selectWorkflow matches by exact id first, ahead of any name match', () => {
+  const list = [{id: 'a1', name: 'Same Name', active: false}, {id: 'a2', name: 'Same Name', active: true}];
+  assert.equal(selectWorkflow(list, 'a1', 'Same Name'), list[0]);
+});
+
+test('selectWorkflow matches by name and prefers the active duplicate', () => {
+  const list = [{id: 'a1', name: 'Dup', active: false}, {id: 'a2', name: 'Dup', active: true}];
+  assert.equal(selectWorkflow(list, 'Dup', 'Dup'), list[1]);
+});
+
+test('selectWorkflow falls back to the default name when nothing was requested', () => {
+  const list = [{id: 'a1', name: 'Other', active: true}, {id: 'a2', name: 'Default Show', active: true}];
+  assert.equal(selectWorkflow(list, undefined, 'Default Show'), list[1]);
+});
+
+test('selectWorkflow returns null when neither the request nor the fallback matches anything', () => {
+  assert.equal(selectWorkflow([{id: 'a1', name: 'Other', active: true}], 'missing', 'Also Missing'), null);
+});
+
+test('findScheduleTriggerNode finds a schedule trigger by type, not by a specific node name', () => {
+  const workflow = {nodes: [
+    {name: 'Whatever This Show Calls It', type: 'n8n-nodes-base.scheduleTrigger', parameters: {rule: {interval: [{field: 'cronExpression', expression: '0 */6 * * *'}]}}},
+    {name: 'Run from Dashboard', type: 'n8n-nodes-base.webhook'},
+  ]};
+  const node = findScheduleTriggerNode(workflow);
+  assert.equal(node.name, 'Whatever This Show Calls It');
+  assert.equal(cronFromScheduleNode(node), '0 */6 * * *');
+});
+
+test('findScheduleTriggerNode returns null for a topic worker with no schedule of its own', () => {
+  const workflow = {nodes: [
+    {name: 'When Executed by Round Robin', type: 'n8n-nodes-base.executeWorkflowTrigger'},
+    {name: 'Run Topic Tips Reel from Dashboard', type: 'n8n-nodes-base.webhook'},
+  ]};
+  assert.equal(findScheduleTriggerNode(workflow), null);
+  assert.equal(cronFromScheduleNode(null), null);
+});
+
+test('findManualTriggerPath reads each workflow\'s own unique webhook path', () => {
+  const workflow = {nodes: [{name: 'Run Topic Tips Reel from Dashboard', type: 'n8n-nodes-base.webhook', parameters: {path: 'topic-agentic-ai-tips-run'}}]};
+  assert.equal(findManualTriggerPath(workflow), 'topic-agentic-ai-tips-run');
+  assert.equal(findManualTriggerPath({nodes: []}), null);
+});
 
 test('manualRunAvailability blocks a duplicate while an execution is running', () => {
   assert.deepEqual(
