@@ -235,8 +235,26 @@ test('Claude tips-dialogue router enforces four turns and a tight word budget', 
   const success = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: validTurns})}]}});
   assert.equal(success[0].json.use_qwen_fallback, false);
 
+  // A real production run (2026-09-16) produced a well-formed, on-topic 48-word dialogue that
+  // the old <=42 ceiling rejected as "invalid" -- wrongly falling through to the Qwen fallback
+  // (which happened to be down that day, surfacing an unrelated Cloudflare tunnel error instead
+  // of the real bug). The actual duration cap is render.mjs's measured-audio durationBudget; this
+  // word count is only a coarse sanity check and must stay loose enough not to duplicate that job.
+  const realProductionTurns = [
+    {speaker: 'peter', text: 'One voice model, 97 languages, zero language detection code.'},
+    {speaker: 'stewie', text: 'Yeah, but you still need custom WebSocket plumbing to make it work.'},
+    {speaker: 'peter', text: 'AI Gateway handles the WebSocket integration in five lines and auto-switches languages for you.'},
+    {speaker: 'stewie', text: "So I get cost tracking and failover without writing branching logic—that's actually solid."},
+  ];
+  const realProduction = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: realProductionTurns})}]}});
+  assert.equal(realProduction[0].json.use_qwen_fallback, false, 'a well-formed 48-word dialogue must not be rejected into the Qwen fallback');
+
   const wrongCount = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: validTurns.slice(0, 2)})}]}});
   assert.equal(wrongCount[0].json.use_qwen_fallback, true);
+
+  const wayTooLong = validTurns.map((turn) => ({...turn, text: `${turn.text} ${'padding word '.repeat(15).trim()}`}));
+  const long = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: wayTooLong})}]}});
+  assert.equal(long[0].json.use_qwen_fallback, true, 'a genuinely runaway response should still be rejected');
 
   const tooShort = validTurns.map((turn) => ({...turn, text: 'Too short.'}));
   const short = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: tooShort})}]}});
