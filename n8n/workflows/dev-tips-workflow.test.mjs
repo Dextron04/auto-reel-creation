@@ -93,6 +93,18 @@ test('the judge uses its own configurable model, independent of the research/dia
   assert.match(research.parameters.jsonBody, /ANTHROPIC_MODEL \|\| 'claude-haiku/);
 });
 
+test('the judge gives Sonnet room to think instead of burning max_tokens on it', () => {
+  // A live run hit stop_reason: max_tokens with an EMPTY thinking block and no text at all --
+  // Sonnet 5 runs adaptive thinking by default (unlike Haiku), and at max_tokens: 512 thinking
+  // alone consumed the whole budget before any visible output, so the router correctly saw an
+  // empty response and fell back to Qwen every single time. The fix is effort: 'low' to keep
+  // thinking shallow for this simple judgement call, plus enough max_tokens for it to still fit.
+  const judge = nodeById.get('tips-judge-claude');
+  assert.match(judge.parameters.jsonBody, /output_config:\s*\{\s*effort:\s*'low'\s*\}/);
+  const [, maxTokens] = judge.parameters.jsonBody.match(/max_tokens:\s*(\d+)/) ?? [];
+  assert.ok(Number(maxTokens) >= 1024, `judge max_tokens (${maxTokens}) is too low to survive Sonnet's default adaptive thinking`);
+});
+
 test('research sourcing reuses the same 11 feeds and trend scorer as the tool-trend show', () => {
   assert.equal(nodeById.get('merge-research-feeds').parameters.numberInputs, 11);
   assert.ok(nodeById.get('score-developer-tool-trends'));

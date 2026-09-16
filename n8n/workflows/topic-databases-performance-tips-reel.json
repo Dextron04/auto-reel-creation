@@ -27,7 +27,7 @@
         0,
         200
       ],
-      "webhookId": "14f5ff96-c5af-4d33-98f3-d449a33a6c69"
+      "webhookId": "90eeee9a-c071-4f27-b04c-ab5facc7e00d"
     },
     {
       "parameters": {
@@ -471,7 +471,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_JUDGE_MODEL || 'claude-sonnet-5', max_tokens: 512, messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_JUDGE_MODEL || 'claude-sonnet-5', max_tokens: 1024, output_config: { effort: 'low' }, messages: [{ role: 'user', content: $json.prompt }] } }}",
         "options": {
           "response": {
             "response": {
@@ -1889,5 +1889,5 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "c7bbb062-9b69-448d-9655-6428efa6bc4e"
+  "versionId": "47b70aeb-2018-4926-a7c8-503ceb583002"
 }

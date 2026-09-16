@@ -119,6 +119,19 @@ test('every tips-format worker judges with Sonnet, matching the general tips sho
   }
 });
 
+test('every tips-format worker gives the Sonnet judge room to think instead of burning max_tokens on it', () => {
+  // Sonnet 5 runs adaptive thinking by default -- a live run hit stop_reason: max_tokens with an
+  // empty thinking block and no text at all because max_tokens: 512 left no room after thinking,
+  // so every judgement silently fell back to Qwen. effort: 'low' plus a higher ceiling fixes it.
+  for (const {file, format, workflow} of workflows) {
+    if (format !== 'tips') continue;
+    const judgeNode = workflow.nodes.find((node) => node.name === 'Judge Topic with Claude');
+    assert.match(judgeNode.parameters.jsonBody, /output_config:\s*\{\s*effort:\s*'low'\s*\}/, file);
+    const [, maxTokens] = judgeNode.parameters.jsonBody.match(/max_tokens:\s*(\d+)/) ?? [];
+    assert.ok(Number(maxTokens) >= 1024, `${file}: judge max_tokens (${maxTokens}) too low for Sonnet's default adaptive thinking`);
+  }
+});
+
 test('every topic workflow reuses the same 11-feed research pool as the original show', () => {
   for (const {file, workflow} of workflows) {
     assert.equal(workflow.nodes.find((node) => node.name === 'Merge Research Sources').parameters.numberInputs, 11, file);
