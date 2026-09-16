@@ -45,7 +45,14 @@ app.post('/v1/publish/youtube', async (req, res) => {
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.get('/v1/topic-history', async (req, res) => {
-  try { res.json({recent: await readTopicHistory(topicHistoryPath(req.query?.namespace))}); }
+  try {
+    // A repeated ?namespace= query merges pools that should both steer future research away from
+    // a topic (rendered + rejected) without conflating them at the hard render-dedup gate below,
+    // which must only ever see the "actually rendered" pool.
+    const namespaces = Array.isArray(req.query?.namespace) ? req.query.namespace : [req.query?.namespace];
+    const histories = await Promise.all(namespaces.map((namespace) => readTopicHistory(topicHistoryPath(namespace))));
+    res.json({recent: histories.flat()});
+  }
   catch (error) { res.status(400).json({error: error.message}); }
 });
 app.post('/v1/topic-history', async (req, res) => {

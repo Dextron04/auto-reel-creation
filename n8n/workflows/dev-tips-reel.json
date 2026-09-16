@@ -36,7 +36,7 @@
         0,
         200
       ],
-      "webhookId": "98170fe3-5426-484d-a529-a3ceed26a74e"
+      "webhookId": "4c555bf6-7243-4eeb-b45b-d0173fbca3d6"
     },
     {
       "parameters": {
@@ -215,7 +215,7 @@
     {
       "parameters": {
         "method": "GET",
-        "url": "http://renderer:3001/v1/topic-history?namespace=tips",
+        "url": "http://renderer:3001/v1/topic-history?namespace=tips&namespace=tips-rejected",
         "options": {
           "response": {
             "response": {
@@ -480,7 +480,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_JUDGE_MODEL || 'claude-sonnet-5', max_tokens: 512, messages: [{ role: 'user', content: $json.prompt }] } }}",
         "options": {
           "response": {
             "response": {
@@ -641,7 +641,7 @@
         "url": "http://renderer:3001/v1/topic-history",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { tool_name: $json.candidate.tool_name, category: 'rejected-not-worth-watching', topic: $json.candidate.topic, namespace: 'tips' } }}",
+        "jsonBody": "={{ { tool_name: $json.candidate.tool_name, category: 'rejected-not-worth-watching', topic: $json.candidate.topic, namespace: 'tips-rejected' } }}",
         "options": {
           "response": {
             "response": {
@@ -1898,5 +1898,5 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "306b843c-c417-4aae-80a3-bf2eb11dea0f"
+  "versionId": "c130d54c-42ab-41df-8c2e-01efd4717226"
 }

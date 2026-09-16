@@ -62,6 +62,37 @@ test('the reel is a distinct, namespaced pipeline from the tool-trend show', () 
   assert.match(record.parameters.jsonBody, /namespace: 'tips'/);
 });
 
+test('quality-rejected topics never poison the rendered-topic dedup gate', () => {
+  // A topic the judge rejects for being weak is a completely different fact from a topic that
+  // actually rendered. Recording both under the same "tips" namespace (an earlier bug) meant a
+  // few rejected candidates permanently exhausted every future research batch's candidate pool,
+  // since "Select Unused Tips Topic" checks that namespace to hard-block anything "already used".
+  const select = nodeById.get('tips-select-unused-topic');
+  assert.match(select.parameters.jsonBody, /namespace: 'tips'/);
+  assert.doesNotMatch(select.parameters.jsonBody, /tips-rejected/);
+
+  const reject = nodeById.get('tips-record-rejected-topic');
+  assert.match(reject.parameters.jsonBody, /namespace: 'tips-rejected'/);
+
+  const record = nodeById.get('tips-record-topic-history');
+  assert.match(record.parameters.jsonBody, /namespace: 'tips'/);
+  assert.doesNotMatch(record.parameters.jsonBody, /tips-rejected/);
+
+  // The research prompt's exclusion archive should still see both pools, merged, as a soft hint.
+  const fetchRecent = nodeById.get('tips-fetch-recent-topics');
+  assert.match(fetchRecent.parameters.url, /namespace=tips&namespace=tips-rejected/);
+});
+
+test('the judge uses its own configurable model, independent of the research/dialogue default', () => {
+  const judge = nodeById.get('tips-judge-claude');
+  assert.match(judge.parameters.jsonBody, /ANTHROPIC_JUDGE_MODEL/);
+  assert.match(judge.parameters.jsonBody, /claude-sonnet-5/);
+  assert.doesNotMatch(judge.parameters.jsonBody, /claude-haiku/);
+
+  const research = nodeById.get('tips-research-claude');
+  assert.match(research.parameters.jsonBody, /ANTHROPIC_MODEL \|\| 'claude-haiku/);
+});
+
 test('research sourcing reuses the same 11 feeds and trend scorer as the tool-trend show', () => {
   assert.equal(nodeById.get('merge-research-feeds').parameters.numberInputs, 11);
   assert.ok(nodeById.get('score-developer-tool-trends'));
