@@ -342,6 +342,20 @@ test('script prompt requests a six-turn Peter and Stewie dialogue', () => {
   assert.match(result[0].json.prompt, /8–12 distinct visual cues/);
   assert.match(result[0].json.prompt, /Claude Vision will reject irrelevant candidates/);
   assert.match(result[0].json.prompt, /government documents/);
+});
+
+test('script prompt requires the hook to land within the first 5-10 seconds', () => {
+  const promptNode = nodeById.get('script-prompt');
+  const seoBriefItem = {json: {
+    research: {recommended_topic: {tool_name: 'Agent Kit', claims: [{statement: 'It runs tools.'}]}},
+    seo_brief: {primary_keyword: 'agent kit for developers'},
+  }};
+  const items = (name) => name === 'Finalize SEO Brief' ? [seoBriefItem] : [];
+  const result = new Function('$items', '$json', promptNode.parameters.jsCode)(items, {});
+
+  assert.match(result[0].json.prompt, /first 5-10 seconds/);
+  assert.match(result[0].json.prompt, /18 words or fewer/);
+  assert.match(result[0].json.prompt, /hard requirement, not a suggestion/);
   assert.match(result[0].json.prompt, /one primary tool/i);
   // Live executions twice generated cues that skipped a turn entirely (turn_index 0-5 not all
   // covered), which only ever failed much later in visual discovery. This is a hard requirement
