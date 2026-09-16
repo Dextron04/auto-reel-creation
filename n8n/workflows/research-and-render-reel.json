@@ -45,11 +45,11 @@
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 15000,
-          "neverError": true
+          "timeout": 15000
         }
       },
       "id": "fetch-recent-topics",
@@ -276,11 +276,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 120000,
-          "neverError": true
+          "timeout": 120000
         }
       },
       "id": "research-claude",
@@ -366,11 +366,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 120000,
-          "neverError": true
+          "timeout": 120000
         }
       },
       "id": "dialogue-claude",
@@ -759,11 +759,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 60000,
-          "neverError": true
+          "timeout": 60000
         }
       },
       "id": "instagram-caption-claude",

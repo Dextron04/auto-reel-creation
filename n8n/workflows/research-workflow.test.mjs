@@ -24,6 +24,20 @@ test('every $items()/$() reference inside a Code node points at a node that actu
   assert.deepEqual(offenders, []);
 });
 
+test('neverError lives where the installed httpRequest node actually reads it', () => {
+  // n8n's HttpRequest V3 node reads this at runtime via
+  // getNodeParameter('options.response.response.neverError', ...) -- not the flatter
+  // options.neverError shape this file used. The flat shape is silently dropped by n8n's API the
+  // moment a node is created/updated through it, so every "fall back instead of failing" node
+  // here was actually throwing on any non-2xx response instead of routing to the Qwen fallback.
+  const needsNeverError = ['Fetch Recent Topics', 'Research with Claude', 'Write Peter and Stewie Dialogue with Claude', 'Write Instagram Caption with Claude'];
+  for (const name of needsNeverError) {
+    const options = workflow.nodes.find((node) => node.name === name).parameters.options;
+    assert.equal(options.neverError, undefined, `${name}: neverError must not sit at the flat options.neverError path`);
+    assert.equal(options.response?.response?.neverError, true, `${name}: neverError must sit at options.response.response.neverError`);
+  }
+});
+
 test('workflow exposes a private manual webhook through the same production pipeline', () => {
   const trigger = workflow.nodes.find((node) => node.name === 'Run from Dashboard');
 
@@ -94,7 +108,7 @@ test('Claude is the primary researcher and local Qwen is the fallback', () => {
   // mid-JSON (stop_reason: max_tokens) and 8192 still does. Keep real headroom above that.
   const [, defaultMaxTokens] = claudeNode.parameters.jsonBody.match(/ANTHROPIC_MAX_TOKENS \|\| (\d+)/) ?? [];
   assert.ok(Number(defaultMaxTokens) >= 16000, `default max_tokens (${defaultMaxTokens}) is too low for the 5-candidate research schema`);
-  assert.equal(claudeNode.parameters.options.neverError, true);
+  assert.equal(claudeNode.parameters.options.response.response.neverError, true);
   assert.equal(claudeNode.parameters.options.response.response.fullResponse, true);
 
   assert.equal(workflow.connections['Build Research Prompt'].main[0][0].node, 'Research with Claude');
@@ -271,7 +285,7 @@ test('normalized research is checked against permanent history before scripting'
 test('recent topics are fetched before the research prompt is built, without blocking on failure', () => {
   const fetchNode = nodeById.get('fetch-recent-topics');
   assert.ok(fetchNode, 'missing fetch-recent-topics node');
-  assert.equal(fetchNode.parameters.options.neverError, true, 'a history-read failure must not fail the run');
+  assert.equal(fetchNode.parameters.options.response.response.neverError, true, 'a history-read failure must not fail the run');
   assert.equal(workflow.connections['Score Developer Tool Trends'].main[0][0].node, 'Fetch Recent Topics');
   assert.equal(workflow.connections['Fetch Recent Topics'].main[0][0].node, 'Build Research Prompt');
 });
@@ -401,7 +415,7 @@ test('Claude is the primary dialogue writer and local Qwen is the fallback', () 
   assert.match(JSON.stringify(claudeNode.parameters.headerParameters), /ANTHROPIC_API_KEY/);
   assert.match(claudeNode.parameters.jsonBody, /ANTHROPIC_MODEL/);
   assert.match(claudeNode.parameters.jsonBody, /claude-haiku-4-5-20251001/);
-  assert.equal(claudeNode.parameters.options.neverError, true);
+  assert.equal(claudeNode.parameters.options.response.response.neverError, true);
   assert.equal(claudeNode.parameters.options.response.response.fullResponse, true);
 
   assert.equal(workflow.connections['Build Peter and Stewie Dialogue Prompt'].main[0][0].node, 'Write Peter and Stewie Dialogue with Claude');
