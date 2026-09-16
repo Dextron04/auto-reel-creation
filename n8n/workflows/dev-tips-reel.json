@@ -36,7 +36,7 @@
         0,
         200
       ],
-      "webhookId": "6ed37ed4-4632-472f-9cbe-13b2028db5e7"
+      "webhookId": "ca77db17-99eb-462c-b6d4-f1a2e73ebbbe"
     },
     {
       "parameters": {
@@ -307,7 +307,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const originalPrompt = $items('Build Research Prompt')[0]?.json?.prompt ?? '';\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nconst errorType = String(body?.error?.type ?? body?.type ?? '').trim();\nif (statusCode >= 200 && statusCode < 300 && text) {\n  return [{ json: { use_qwen_fallback: false, response: text, research_provider: 'anthropic', research_model: body?.model ?? 'claude', prompt: originalPrompt } }];\n}\nconst fallbackReason = statusCode < 200 || statusCode >= 300 ? `${statusCode}_${errorType || 'http_error'}` : 'empty_response';\nreturn [{ json: { use_qwen_fallback: true, prompt: originalPrompt, research_provider: 'qwen-fallback', fallback_reason: fallbackReason } }];"
+        "jsCode": "const originalPrompt = $items('Build Tips Research Prompt')[0]?.json?.prompt ?? '';\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nconst errorType = String(body?.error?.type ?? body?.type ?? '').trim();\nif (statusCode >= 200 && statusCode < 300 && text) {\n  return [{ json: { use_qwen_fallback: false, response: text, research_provider: 'anthropic', research_model: body?.model ?? 'claude', prompt: originalPrompt } }];\n}\nconst fallbackReason = statusCode < 200 || statusCode >= 300 ? `${statusCode}_${errorType || 'http_error'}` : 'empty_response';\nreturn [{ json: { use_qwen_fallback: true, prompt: originalPrompt, research_provider: 'qwen-fallback', fallback_reason: fallbackReason } }];"
       },
       "id": "tips-route-claude-research",
       "name": "Route Claude Tips Research Result",
@@ -1125,7 +1125,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const promptItem = $items('Build Instagram Caption Prompt')[0]?.json ?? {};\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nlet caption; let captionSource = 'seo_fallback';\nif (statusCode >= 200 && statusCode < 300 && text) {\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  const candidate = String(fenced?.[1] ?? text).trim();\n  try {\n    const parsed = JSON.parse(candidate);\n    const parsedCaption = String(parsed.caption ?? '').trim();\n    const hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.map((tag) => String(tag).trim()).filter(Boolean) : [];\n    if (parsedCaption && hashtags.length) { caption = `${parsedCaption}\\n\\n${hashtags.join(' ')}`; captionSource = 'claude'; }\n  } catch {}\n}\nif (!caption) {\n  const seoBrief = promptItem.seo_brief ?? {};\n  const description = String(seoBrief.description ?? '').trim();\n  const hashtags = Array.isArray(seoBrief.hashtags) ? seoBrief.hashtags : [];\n  caption = [description, hashtags.join(' ')].filter(Boolean).join('\\n\\n');\n}\nif (!caption) throw new Error('INSTAGRAM_CAPTION_UNAVAILABLE');\nreturn [{ json: { caption, captionSource, outputLocation: promptItem.outputLocation } }];"
+        "jsCode": "const promptItem = $items('Build Tips Instagram Caption Prompt')[0]?.json ?? {};\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content) ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim() : '';\nlet caption; let captionSource = 'seo_fallback';\nif (statusCode >= 200 && statusCode < 300 && text) {\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  const candidate = String(fenced?.[1] ?? text).trim();\n  try {\n    const parsed = JSON.parse(candidate);\n    const parsedCaption = String(parsed.caption ?? '').trim();\n    const hashtags = Array.isArray(parsed.hashtags) ? parsed.hashtags.map((tag) => String(tag).trim()).filter(Boolean) : [];\n    if (parsedCaption && hashtags.length) { caption = `${parsedCaption}\\n\\n${hashtags.join(' ')}`; captionSource = 'claude'; }\n  } catch {}\n}\nif (!caption) {\n  const seoBrief = promptItem.seo_brief ?? {};\n  const description = String(seoBrief.description ?? '').trim();\n  const hashtags = Array.isArray(seoBrief.hashtags) ? seoBrief.hashtags : [];\n  caption = [description, hashtags.join(' ')].filter(Boolean).join('\\n\\n');\n}\nif (!caption) throw new Error('INSTAGRAM_CAPTION_UNAVAILABLE');\nreturn [{ json: { caption, captionSource, outputLocation: promptItem.outputLocation } }];"
       },
       "id": "tips-route-instagram-caption",
       "name": "Tips Caption Ready",
@@ -1898,5 +1898,5 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "e75bdf0b-74ab-4a6a-99c7-18e43ac115c3"
+  "versionId": "f79e7d85-85bc-4612-be73-6d37ccb84c4a"
 }

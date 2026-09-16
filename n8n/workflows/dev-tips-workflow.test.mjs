@@ -11,6 +11,25 @@ const code = (id) => nodeById.get(id).parameters.jsCode;
 // which is all these single-branch tests need.
 const pairedItem = (state) => (_name) => ({item: {json: state}});
 
+test('every $items()/$() reference inside a Code node points at a node that actually exists', () => {
+  // Reused code from the tool-trend workflow hardcodes node names by string (e.g.
+  // $items('Build Research Prompt')) -- renaming the node this workflow copies that code into
+  // (here, to "Build Tips Research Prompt") silently breaks the reference at runtime with n8n's
+  // opaque "Referenced node doesn't exist" error, which the structural connection checks below
+  // don't catch since they only look at the connections graph, not string literals inside jsCode.
+  const names = new Set(workflow.nodes.map((node) => node.name));
+  const refPattern = /\$(?:items)?\('([^']+)'\)/g;
+  const offenders = [];
+  for (const node of workflow.nodes) {
+    const jsCode = node.parameters?.jsCode;
+    if (!jsCode) continue;
+    for (const match of jsCode.matchAll(refPattern)) {
+      if (!names.has(match[1])) offenders.push(`${node.name} -> ${match[1]}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
 test('the reel is a distinct, namespaced pipeline from the tool-trend show', () => {
   const trigger = workflow.nodes.find((node) => node.name === 'Run Tips Reel from Dashboard');
   assert.equal(trigger?.parameters?.path, 'tips-dashboard-run');

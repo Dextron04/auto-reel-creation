@@ -7,6 +7,23 @@ const workflowPath = new URL('./research-and-render-reel.json', import.meta.url)
 const workflow = JSON.parse(await readFile(workflowPath, 'utf8'));
 const nodeById = new Map(workflow.nodes.map((node) => [node.id, node]));
 
+test('every $items()/$() reference inside a Code node points at a node that actually exists', () => {
+  // A node rename that misses one of its own string-literal references inside jsCode fails only
+  // at runtime with n8n's opaque "Referenced node doesn't exist" -- structural connection checks
+  // elsewhere in this file don't catch it since they only look at the connections graph.
+  const names = new Set(workflow.nodes.map((node) => node.name));
+  const refPattern = /\$(?:items)?\('([^']+)'\)/g;
+  const offenders = [];
+  for (const node of workflow.nodes) {
+    const jsCode = node.parameters?.jsCode;
+    if (!jsCode) continue;
+    for (const match of jsCode.matchAll(refPattern)) {
+      if (!names.has(match[1])) offenders.push(`${node.name} -> ${match[1]}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
 test('workflow exposes a private manual webhook through the same production pipeline', () => {
   const trigger = workflow.nodes.find((node) => node.name === 'Run from Dashboard');
 
