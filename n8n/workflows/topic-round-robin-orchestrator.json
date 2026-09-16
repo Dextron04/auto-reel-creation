@@ -1,0 +1,114 @@
+{
+  "id": "TopicRoundRobinOrchestrator",
+  "name": "Topic Round Robin Orchestrator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4,10,16,22 * * *"
+            }
+          ]
+        }
+      },
+      "id": "orchestrator-schedule-trigger",
+      "name": "Dispatch Four Times Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "topic-orchestrator-run",
+        "options": {}
+      },
+      "id": "orchestrator-dashboard-manual-trigger",
+      "name": "Run Orchestrator from Dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "01024dc0-9efa-44c1-8da8-cd5e95d6649e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Round-robin state lives in this workflow's static data so it survives across scheduled\n// firings indefinitely (unlike the per-execution research-cycle guard in the topic workers,\n// this must NOT reset per execution -- it is the whole point of the rotation).\nconst roster = [{\"workflowId\": \"aMAQt4XFc3dQoJ18\", \"workflowName\": \"Agentic AI & Coding Agents: Tips Reel\"}, {\"workflowId\": \"544pSlOJiOpgWcdu\", \"workflowName\": \"Agentic AI & Coding Agents: Trend Reel\"}, {\"workflowId\": \"31QYT1GhUh6qji9f\", \"workflowName\": \"Editor & IDE Power Features: Tips Reel\"}, {\"workflowId\": \"8BDCLy1n57fBtArF\", \"workflowName\": \"Editor & IDE Power Features: Trend Reel\"}, {\"workflowId\": \"oabUY0nYfgqfVPOw\", \"workflowName\": \"Git & CLI Tricks: Tips Reel\"}, {\"workflowId\": \"cON3J0BYweklJx9Y\", \"workflowName\": \"Git & CLI Tricks: Trend Reel\"}, {\"workflowId\": \"8qJ45bzEhYJcPMcX\", \"workflowName\": \"Debugging & Observability: Tips Reel\"}, {\"workflowId\": \"WERLRUMuwApEAxOL\", \"workflowName\": \"Debugging & Observability: Trend Reel\"}, {\"workflowId\": \"e0TxVmd9Oo92bwRJ\", \"workflowName\": \"Databases & Performance: Tips Reel\"}, {\"workflowId\": \"L7kYirg3MkRT4iVi\", \"workflowName\": \"Databases & Performance: Trend Reel\"}];\nconst staticData = $getWorkflowStaticData('global');\nconst currentIndex = Number(staticData.nextTopicIndex ?? 0) % roster.length;\nstaticData.nextTopicIndex = (currentIndex + 1) % roster.length;\nconst selected = roster[currentIndex];\nreturn [{json: {workflowId: selected.workflowId, workflowName: selected.workflowName, rotationIndex: currentIndex, rosterSize: roster.length}}];\n"
+      },
+      "id": "orchestrator-pick-next-topic",
+      "name": "Pick Next Topic Worker",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "source": "database",
+        "workflowId": "={{$json.workflowId}}",
+        "mode": "once",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "id": "orchestrator-dispatch",
+      "name": "Dispatch Selected Topic Worker",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Dispatch Four Times Daily": {
+      "main": [
+        [
+          {
+            "node": "Pick Next Topic Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Orchestrator from Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Pick Next Topic Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Next Topic Worker": {
+      "main": [
+        [
+          {
+            "node": "Dispatch Selected Topic Worker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "e70c030b-b128-4daa-8be8-3e0d33ef5374"
+}
