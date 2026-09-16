@@ -22,6 +22,7 @@ node --test n8n/workflows/research-workflow.test.mjs
 
 echo "Running deployment regression suite..."
 node --test scripts/update-production-checkout.test.mjs
+node --test scripts/dashboard-deployment.test.mjs
 
 echo "Rebuilding and restarting containers..."
 # docker compose's in-place recreate (stop -> rename to a temp id-prefixed name -> create ->
@@ -53,6 +54,9 @@ status=0
 check renderer http://127.0.0.1:3001/health || status=1
 check n8n http://127.0.0.1:5678/healthz || status=1
 check dashboard http://127.0.0.1:4000/health || status=1
+if ! node scripts/check-dashboard-status.mjs http://127.0.0.1:4000/api/status; then
+  status=1
+fi
 
 if [ "$status" -ne 0 ]; then
   echo "--- container status ---" >&2
