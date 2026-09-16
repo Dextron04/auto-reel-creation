@@ -215,9 +215,10 @@ test('tips dialogue prompt asks for a four-turn script sized for 10-15 seconds',
   const result = new Function('$items', '$json', code('tips-script-prompt'))(items, {});
 
   assert.match(result[0].json.prompt, /exactly four/i);
-  assert.match(result[0].json.prompt, /first 3-4 seconds/);
-  assert.match(result[0].json.prompt, /14 words or fewer/);
-  assert.match(result[0].json.prompt, /between 22 and 38/);
+  assert.match(result[0].json.prompt, /first 4-5 seconds/);
+  assert.match(result[0].json.prompt, /10 words or fewer/);
+  assert.match(result[0].json.prompt, /between 20 and 28/);
+  assert.match(result[0].json.prompt, /2 words per second/);
   assert.match(result[0].json.prompt, /turn_index 0, 1, 2, and 3/);
 });
 
@@ -227,19 +228,20 @@ test('Claude tips-dialogue router enforces four turns and a tight word budget', 
   const run = (json) => new Function('$json', '$items', code('tips-route-claude-dialogue'))(json, items);
 
   const validTurns = [
-    {speaker: 'peter', text: 'Worktrees let you check out a branch without touching your dirty working copy.'},
-    {speaker: 'stewie', text: 'Nobody bothers, they just stash and switch like normal people.'},
-    {speaker: 'peter', text: 'Stashing forgets context; a worktree keeps both branches open at once.'},
-    {speaker: 'stewie', text: 'Fine, one less stash disaster is a win.'},
+    {speaker: 'peter', text: 'Worktrees swap branches without ever touching your stash.'},
+    {speaker: 'stewie', text: 'Nobody bothers, they just stash instead.'},
+    {speaker: 'peter', text: 'Stashing loses context; worktrees keep both branches open.'},
+    {speaker: 'stewie', text: 'Fine, that actually saves real time.'},
   ];
   const success = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: validTurns})}]}});
   assert.equal(success[0].json.use_qwen_fallback, false);
 
-  // A real production run (2026-09-16) produced a well-formed, on-topic 48-word dialogue that
-  // the old <=42 ceiling rejected as "invalid" -- wrongly falling through to the Qwen fallback
-  // (which happened to be down that day, surfacing an unrelated Cloudflare tunnel error instead
-  // of the real bug). The actual duration cap is render.mjs's measured-audio durationBudget; this
-  // word count is only a coarse sanity check and must stay loose enough not to duplicate that job.
+  // A real production run (2026-09-16) returned a well-formed, on-topic dialogue that measured
+  // 23.04s of actual audio for 48 words -- about 2.08 words/second for this show's TTS voice, far
+  // slower than this code originally assumed. The word-count ceiling here is calibrated against
+  // that measured rate (32 words tops out around 15.4s) specifically so a dialogue this long is
+  // caught HERE, before spending a TTS call, an image search, and the editorial gate on a script
+  // that render.mjs's measured-audio durationBudget (max 18s) would reject anyway.
   const realProductionTurns = [
     {speaker: 'peter', text: 'One voice model, 97 languages, zero language detection code.'},
     {speaker: 'stewie', text: 'Yeah, but you still need custom WebSocket plumbing to make it work.'},
@@ -247,7 +249,7 @@ test('Claude tips-dialogue router enforces four turns and a tight word budget', 
     {speaker: 'stewie', text: "So I get cost tracking and failover without writing branching logic—that's actually solid."},
   ];
   const realProduction = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: realProductionTurns})}]}});
-  assert.equal(realProduction[0].json.use_qwen_fallback, false, 'a well-formed 48-word dialogue must not be rejected into the Qwen fallback');
+  assert.equal(realProduction[0].json.use_qwen_fallback, true, 'a 48-word dialogue measures ~23s at this voice\'s real speech rate and must be rejected before it reaches render');
 
   const wrongCount = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: validTurns.slice(0, 2)})}]}});
   assert.equal(wrongCount[0].json.use_qwen_fallback, true);
@@ -266,10 +268,10 @@ test('tips dialogue normalization requires exactly four alternating turns and na
   const valid = {response: JSON.stringify({
     title: 'Git Worktrees', focus: 'Parallel branches',
     turns: [
-      {speaker: 'peter', text: 'Worktrees check out a branch without touching your dirty working copy.'},
-      {speaker: 'stewie', text: 'Nobody bothers, they just stash and switch like everyone else.'},
-      {speaker: 'peter', text: 'Stashing forgets context; a worktree keeps both branches open at once.'},
-      {speaker: 'stewie', text: 'Fine, one less stash disaster really is a win.'},
+      {speaker: 'peter', text: 'Worktrees swap branches without ever touching your stash.'},
+      {speaker: 'stewie', text: 'Nobody bothers, they just stash instead.'},
+      {speaker: 'peter', text: 'Stashing loses context; worktrees keep both branches open.'},
+      {speaker: 'stewie', text: 'Fine, that actually saves real time.'},
     ],
     visuals: [{turn_index: 0, phrase: 'x', query: 'y'}],
   })};
@@ -294,7 +296,7 @@ test('tips render job requires all four turns covered and sets a short-form dura
   const result = new Function('$items', code('tips-render-prep'))(items);
 
   assert.equal(result[0].json.minimumImages, 4);
-  assert.deepEqual(result[0].json.durationBudget, {minSeconds: 8, maxSeconds: 18});
+  assert.deepEqual(result[0].json.durationBudget, {minSeconds: 10, maxSeconds: 18});
   assert.equal(result[0].json.dialogue.length, 4);
 
   const gappyCues = [0, 0, 2, 2].map((turn_index) => ({turn_index, phrase: 'x', query: 'y'}));
