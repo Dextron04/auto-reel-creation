@@ -36,7 +36,7 @@
         0,
         200
       ],
-      "webhookId": "ca77db17-99eb-462c-b6d4-f1a2e73ebbbe"
+      "webhookId": "98170fe3-5426-484d-a529-a3ceed26a74e"
     },
     {
       "parameters": {
@@ -219,11 +219,11 @@
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 15000,
-          "neverError": true
+          "timeout": 15000
         }
       },
       "id": "tips-fetch-recent-topics",
@@ -289,11 +289,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 120000,
-          "neverError": true
+          "timeout": 120000
         }
       },
       "id": "tips-research-claude",
@@ -485,11 +485,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 120000,
-          "neverError": true
+          "timeout": 120000
         }
       },
       "id": "tips-judge-claude",
@@ -645,11 +645,11 @@
         "options": {
           "response": {
             "response": {
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 15000,
-          "neverError": true
+          "timeout": 15000
         }
       },
       "id": "tips-record-rejected-topic",
@@ -761,11 +761,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 120000,
-          "neverError": true
+          "timeout": 120000
         }
       },
       "id": "tips-dialogue-claude",
@@ -1107,11 +1107,11 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "responseFormat": "json"
+              "responseFormat": "json",
+              "neverError": true
             }
           },
-          "timeout": 120000,
-          "neverError": true
+          "timeout": 120000
         }
       },
       "id": "tips-instagram-caption-claude",
@@ -1898,5 +1898,5 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "f79e7d85-85bc-4612-be73-6d37ccb84c4a"
+  "versionId": "306b843c-c417-4aae-80a3-bf2eb11dea0f"
 }

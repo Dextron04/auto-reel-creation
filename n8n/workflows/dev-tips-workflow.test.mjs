@@ -30,6 +30,25 @@ test('every $items()/$() reference inside a Code node points at a node that actu
   assert.deepEqual(offenders, []);
 });
 
+test('neverError lives where the installed httpRequest node actually reads it', () => {
+  // n8n's HttpRequest V3 node reads this at runtime via
+  // getNodeParameter('options.response.response.neverError', ...) -- NOT the flatter
+  // options.neverError shape the rest of this codebase (and n8n's own UI, apparently, for
+  // already-stored older nodes) uses. Placing it flat means the field gets silently dropped the
+  // moment this workflow is created/updated through the API, and the node throws instead of
+  // falling back on a non-2xx response. A live run against production caught this the hard way
+  // (a routine TOPIC_HISTORY_DUPLICATE 400 crashed the whole execution instead of being ignored).
+  const needsNeverError = [
+    'Fetch Recent Tips Topics', 'Research Tips with Claude', 'Judge Topic with Claude',
+    'Record Rejected Topic', 'Write Tips Dialogue with Claude', 'Write Tips Instagram Caption with Claude',
+  ];
+  for (const name of needsNeverError) {
+    const options = workflow.nodes.find((node) => node.name === name)?.parameters?.options ?? {};
+    assert.equal(options.neverError, undefined, `${name}: neverError must not sit at the flat options.neverError path`);
+    assert.equal(options.response?.response?.neverError, true, `${name}: neverError must sit at options.response.response.neverError`);
+  }
+});
+
 test('the reel is a distinct, namespaced pipeline from the tool-trend show', () => {
   const trigger = workflow.nodes.find((node) => node.name === 'Run Tips Reel from Dashboard');
   assert.equal(trigger?.parameters?.path, 'tips-dashboard-run');
