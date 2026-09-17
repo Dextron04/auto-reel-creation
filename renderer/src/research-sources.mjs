@@ -1,12 +1,16 @@
 import { getResearchTopic, TOPIC_FORMATS } from './research-topic-registry.mjs';
 import { readResearchCache, writeResearchCache } from './research-cache.mjs';
 
-const TRACKING_PARAMETERS = /^(utm_.*|fbclid|gclid|dclid|mc_cid|mc_eid|ref|referrer|source)$/i;
-const SENSITIVE_PARAMETERS = /^(api_key|apikey|key|token|access_token|auth|authorization|secret|signature)$/i;
+const TRACKING_PARAMETERS = /^(utmsource|utm.*|fbclid|gclid|dclid|mccid|mceid|ref|referrer|source)$/;
+const SENSITIVE_PARAMETERS = /^(apikey|key|token|accesstoken|refreshtoken|authtoken|auth|authorization|authorisation|secret|clientsecret|password|passwd|signature|sig|credentials?|session(?:id|token|identifier|key)|sid)$/;
 const BORDERLINE_CONFIDENCE = 0.75;
 const MAX_PER_QUERY = 10;
 const MAX_RAW = 100;
 const MAX_SOURCES = 20;
+
+function normalizedParameterName(value) {
+  return String(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
 
 export function canonicalizeResearchUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return null;
@@ -20,7 +24,8 @@ export function canonicalizeResearchUrl(value) {
   parsed.password = '';
   parsed.hash = '';
   for (const key of [...parsed.searchParams.keys()]) {
-    if (TRACKING_PARAMETERS.test(key) || SENSITIVE_PARAMETERS.test(key)) parsed.searchParams.delete(key);
+    const normalizedKey = normalizedParameterName(key);
+    if (TRACKING_PARAMETERS.test(normalizedKey) || SENSITIVE_PARAMETERS.test(normalizedKey)) parsed.searchParams.delete(key);
   }
   parsed.searchParams.sort();
   if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, '');
@@ -129,26 +134,30 @@ function decisionFor(source, decisions) {
   return decisions[source.source_url] ?? null;
 }
 
+function admissionState(source, topic, format) {
+  const text = textOf(source);
+  const excluded = topic.excludeTerms.some((term) => matchesTerm(text, term));
+  const lexical = source.matched_terms?.length ?? topic.includeTerms.filter((term) => matchesTerm(text, term)).length;
+  const preferred = source.domain_score === 1;
+  const authoritative = source.source_type?.startsWith('official') || source.source_type === 'repository';
+  const lexicalThreshold = format === 'tips' ? 2 : 1;
+  const deterministic = !excluded && ((lexical >= lexicalThreshold && (preferred || authoritative)) || (lexical === 1 && preferred && authoritative));
+  return { excluded, deterministic };
+}
+
 export function filterResearchSources(sources, topic, format, options = {}) {
   const now = options.now ?? new Date();
   const scored = sources.map((source) => source.relevance_score == null ? scoreResearchSource(source, topic, format, now) : source);
   const accepted = [];
   let borderlineIndex = 0;
   for (const source of scored) {
-    const text = textOf(source);
-    const excluded = topic.excludeTerms.some((term) => matchesTerm(text, term));
-    if (excluded) continue;
-    const lexical = source.matched_terms?.length ?? topic.includeTerms.filter((term) => matchesTerm(text, term)).length;
-    const preferred = source.domain_score === 1;
-    const authoritative = source.source_type?.startsWith('official') || source.source_type === 'repository';
+    const state = admissionState(source, topic, format);
+    if (state.excluded) continue;
     // Tips require meaningful lexical coverage; a lone generic term remains
     // borderline unless the source is both preferred and authoritative.
     // Trends may admit one term from a preferred/authoritative source because
     // release headlines are intentionally concise.
-    const lexicalThreshold = format === 'tips' ? 2 : 1;
-    const deterministic = lexical >= lexicalThreshold && (preferred || authoritative);
-    const strongSingleTerm = lexical === 1 && preferred && authoritative;
-    if (deterministic || strongSingleTerm) {
+    if (state.deterministic) {
       accepted.push(source);
       continue;
     }
@@ -233,7 +242,10 @@ export async function retrieveResearchSources({
     scoredRows = [...normalizedUnique.values()].map((row) => scoreResearchSource(row, topic, format, now));
     deterministic = filterResearchSources(scoredRows, topic, format, { now, limit: MAX_RAW });
   }
-  const borderline = scoredRows.filter((row) => !row.excluded_terms?.length && !(row.matched_terms?.length));
+  const borderline = scoredRows.filter((row) => {
+    const state = admissionState(row, topic, format);
+    return !state.excluded && !state.deterministic;
+  });
   const decisions = await runBorderlineClassifier(borderline, topic, format, classifyBorderline);
   const indexDecisions = new Map(borderline.map((row, index) => [row.source_url, decisions[index]]));
   const qualified = filterResearchSources(scoredRows, topic, format, { now, limit: MAX_SOURCES, borderlineDecisions: indexDecisions });

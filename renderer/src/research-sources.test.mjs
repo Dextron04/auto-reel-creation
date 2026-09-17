@@ -34,7 +34,7 @@ test('canonicalizes tracking parameters and fragments', () => {
 });
 
 test('canonicalization strips userinfo and sensitive query parameters', () => {
-  assert.equal(canonicalizeResearchUrl('https://user:pass@example.com/docs?api_key=a&apikey=b&key=c&token=d&access_token=e&auth=f&authorization=g&secret=h&signature=i&safe=1'), 'https://example.com/docs?safe=1');
+  assert.equal(canonicalizeResearchUrl('https://user:pass@example.com/docs?api_key=a&apikey=b&key=c&token=d&access_token=e&refresh_token=r&auth=f&auth_token=at&authorization=g&authorisation=au&secret=h&client_secret=cs&password=p&passwd=pw&signature=i&sig=sg&credential=cr&session_id=sid&safe=1'), 'https://example.com/docs?safe=1');
 });
 
 test('preferred domains receive an authority boost', () => {
@@ -52,6 +52,24 @@ test('weak single-term tips remain borderline even on a preferred domain', () =>
   const databaseTopic = getResearchTopic('databases-performance');
   const launch = normalizeResearchResult(raw('https://postgresql.org/news/launch', 'PostgreSQL launches a new cloud dashboard'), { topic: databaseTopic, format: 'tips', query: 'PostgreSQL', now });
   assert.equal(filterResearchSources([launch], databaseTopic, 'tips', { now }).length, 0);
+});
+
+test('weak single-term rows are sent to the classifier', async () => {
+  let calls = 0;
+  const databaseTopic = getResearchTopic('databases-performance');
+  const query = databaseTopic.tipsQueries[0];
+  const result = await retrieveResearchSources({
+    topicSlug: 'databases-performance',
+    format: 'tips',
+    now,
+    mediaDir: `/tmp/research-test-weak-classifier-${process.pid}-${Date.now()}`,
+    searxngUrl: 'http://searxng.test',
+    fetchImpl: fetchFor(new Map(databaseTopic.tipsQueries.map((item) => [item, item === query ? [raw('https://postgresql.org/news/launch', 'PostgreSQL launches a new cloud dashboard')] : []]))),
+    classifyBorderline: async (rows) => { calls += 1; return rows.map(() => ({ in_scope: true, confidence: 0.9, reason: 'database launch is in scope' })); },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.status, 'no_in_scope_research');
+  assert.equal(result.diagnostics.qualifiedCount, 1);
 });
 
 test('mixed-topic fixtures retain only the requested topic', () => {
