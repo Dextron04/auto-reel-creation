@@ -252,8 +252,12 @@ export async function retrieveResearchSources({
   const baseDiagnostics = diagnostics(firstQueries.length + (expansionAttempted ? buildResearchQueries(topic, format, true).length : 0), rows.length, dedupedCount, qualified);
   const finalSources = qualified.slice(0, MAX_SOURCES);
   const enough = finalSources.length >= topic.minimumQualifiedSources && primaryCount(finalSources) >= topic.minimumPrimarySources;
-  const result = enough ? { status: 'ready', topicSlug, format, sources: finalSources, diagnostics: baseDiagnostics } : {
-    status: 'no_in_scope_research', topicSlug, format, sources: [], diagnostics: baseDiagnostics,
+  // n8n's two shared core workflows serve all five topics from one definition and cannot import
+  // the registry directly, so this descriptor is how a core builds a topic-scoped prompt/judge at
+  // runtime without duplicating registry policy text into workflow JSON.
+  const topicDescriptor = { slug: topic.slug, displayName: topic.displayName, scope: topic.scope, excludeTerms: topic.excludeTerms };
+  const result = enough ? { status: 'ready', topicSlug, format, sources: finalSources, diagnostics: baseDiagnostics, topic: topicDescriptor } : {
+    status: 'no_in_scope_research', topicSlug, format, sources: [], diagnostics: baseDiagnostics, topic: topicDescriptor,
     reason: `fewer than ${topic.minimumQualifiedSources} qualified sources or ${topic.minimumPrimarySources} primary source`,
   };
   await writeResearchCache({ topicSlug, format, now, mediaDir }, result).catch(() => {});

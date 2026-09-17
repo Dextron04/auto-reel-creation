@@ -126,3 +126,18 @@ test('shortage returns no_in_scope_research while infrastructure errors throw', 
   await assert.rejects(() => retrieveResearchSources({ topicSlug: 'editor-ide', format: 'tips', now, mediaDir: `/tmp/research-test-missing-${process.pid}`, searxngUrl: '', fetchImpl: fetchFor(new Map()) }), /SEARXNG/);
   await assert.rejects(() => retrieveResearchSources({ topicSlug: 'editor-ide', format: 'tips', now, mediaDir: `/tmp/research-test-http-${process.pid}`, searxngUrl: 'http://searxng.test', fetchImpl: async () => ({ ok: false, status: 503, async json() { return {}; } }) }), /SEARXNG/);
 });
+
+// n8n's two shared core workflows (one Tips core, one Trend core) serve all five topics from a
+// single workflow definition and cannot import research-topic-registry.mjs directly, so both
+// outcomes must carry enough registry-sourced policy for a core to build a topic-scoped prompt
+// and judge at runtime without hand-duplicating scope text into workflow JSON.
+test('both outcomes carry a registry-sourced topic descriptor for topic-agnostic n8n cores', async () => {
+  const many = Array.from({ length: 6 }, (_, i) => raw(`https://code.visualstudio.com/docs/descriptor-${i}`, `VS Code feature ${i}`));
+  const ready = await retrieveResearchSources({ topicSlug: 'editor-ide', format: 'tips', now, mediaDir: `/tmp/research-test-descriptor-ready-${process.pid}-${Date.now()}`, searxngUrl: 'http://searxng.test', fetchImpl: fetchFor(new Map([[topic.tipsQueries[0], many]])) });
+  assert.equal(ready.status, 'ready');
+  assert.deepEqual(ready.topic, { slug: 'editor-ide', displayName: topic.displayName, scope: topic.scope, excludeTerms: topic.excludeTerms });
+
+  const shortage = await retrieveResearchSources({ topicSlug: 'editor-ide', format: 'tips', now, mediaDir: `/tmp/research-test-descriptor-shortage-${process.pid}-${Date.now()}`, searxngUrl: 'http://searxng.test', fetchImpl: fetchFor(new Map()) });
+  assert.equal(shortage.status, 'no_in_scope_research');
+  assert.deepEqual(shortage.topic, { slug: 'editor-ide', displayName: topic.displayName, scope: topic.scope, excludeTerms: topic.excludeTerms });
+});
