@@ -176,7 +176,7 @@ export function createApp(dependencies = {}) {
   // existing JSON size limit here so clients receive a clean API response;
   // all other errors retain Express's established default behavior.
   app.use((error, _req, res, next) => {
-    if (error?.type === 'entity.too.large' || error?.status === 413) {
+    if (error?.type === 'entity.too.large') {
       return res.status(413).json({error: 'REQUEST_BODY_TOO_LARGE'});
     }
     return next(error);
