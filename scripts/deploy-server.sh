@@ -17,11 +17,15 @@ npm --prefix renderer test
 echo "Running dashboard regression suite..."
 npm --prefix dashboard test
 
+echo "Verifying generated topic workflows have not drifted from their generator..."
+node scripts/build-topic-workflows.mjs --check
+
 echo "Running n8n workflow regression suite..."
 node --test n8n/workflows/research-workflow.test.mjs
 node --test n8n/workflows/dev-tips-workflow.test.mjs
 node --test n8n/workflows/topic-workflows.test.mjs
 node --test n8n/workflows/topic-round-robin-orchestrator.test.mjs
+node --test scripts/build-topic-workflows.test.mjs
 
 echo "Running deployment regression suite..."
 node --test scripts/update-production-checkout.test.mjs
