@@ -33,6 +33,10 @@ test('canonicalizes tracking parameters and fragments', () => {
   assert.equal(canonicalizeResearchUrl('HTTPS://Code.VisualStudio.com/docs?a=1&utm_source=x&fbclid=z#install'), 'https://code.visualstudio.com/docs?a=1');
 });
 
+test('canonicalization strips userinfo and sensitive query parameters', () => {
+  assert.equal(canonicalizeResearchUrl('https://user:pass@example.com/docs?api_key=a&apikey=b&key=c&token=d&access_token=e&auth=f&authorization=g&secret=h&signature=i&safe=1'), 'https://example.com/docs?safe=1');
+});
+
 test('preferred domains receive an authority boost', () => {
   const preferred = normalizeResearchResult(raw('https://code.visualstudio.com/docs', 'VS Code editor feature'), { topic, format: 'tips', query: 'VS Code' , now });
   const community = normalizeResearchResult(raw('https://random.example/docs', 'VS Code editor feature'), { topic, format: 'tips', query: 'VS Code', now });
@@ -42,6 +46,12 @@ test('preferred domains receive an authority boost', () => {
 test('explicit exclusions reject an otherwise matching source', () => {
   const excluded = normalizeResearchResult(raw('https://code.visualstudio.com/docs', 'VS Code agent harness cloud deployment'), { topic, format: 'tips', query: 'VS Code', now });
   assert.equal(filterResearchSources([excluded], topic, 'tips', { now }).length, 0);
+});
+
+test('weak single-term tips remain borderline even on a preferred domain', () => {
+  const databaseTopic = getResearchTopic('databases-performance');
+  const launch = normalizeResearchResult(raw('https://postgresql.org/news/launch', 'PostgreSQL launches a new cloud dashboard'), { topic: databaseTopic, format: 'tips', query: 'PostgreSQL', now });
+  assert.equal(filterResearchSources([launch], databaseTopic, 'tips', { now }).length, 0);
 });
 
 test('mixed-topic fixtures retain only the requested topic', () => {
@@ -74,6 +84,12 @@ test('one expanded query pass runs when the first pass is short', async () => {
   assert.equal(result.status, 'ready');
   assert.equal(result.diagnostics.queryCount, topic.tipsQueries.length * 2);
   assert.equal(new Set(seen.slice(topic.tipsQueries.length)).size, topic.tipsQueries.length);
+});
+
+test('diagnostics count an expanded pass even when it returns no rows', async () => {
+  const result = await retrieveResearchSources({ topicSlug: 'editor-ide', format: 'tips', now, mediaDir: `/tmp/research-test-empty-expansion-${process.pid}-${Date.now()}`, searxngUrl: 'http://searxng.test', fetchImpl: fetchFor(new Map()) });
+  assert.equal(result.status, 'no_in_scope_research');
+  assert.equal(result.diagnostics.queryCount, topic.tipsQueries.length * 2);
 });
 
 test('classifies borderline rows once and admits only confident in-scope rows', async () => {

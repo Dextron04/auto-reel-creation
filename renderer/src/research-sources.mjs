@@ -2,6 +2,7 @@ import { getResearchTopic, TOPIC_FORMATS } from './research-topic-registry.mjs';
 import { readResearchCache, writeResearchCache } from './research-cache.mjs';
 
 const TRACKING_PARAMETERS = /^(utm_.*|fbclid|gclid|dclid|mc_cid|mc_eid|ref|referrer|source)$/i;
+const SENSITIVE_PARAMETERS = /^(api_key|apikey|key|token|access_token|auth|authorization|secret|signature)$/i;
 const BORDERLINE_CONFIDENCE = 0.75;
 const MAX_PER_QUERY = 10;
 const MAX_RAW = 100;
@@ -15,8 +16,12 @@ export function canonicalizeResearchUrl(value) {
   parsed.protocol = parsed.protocol.toLowerCase();
   parsed.hostname = parsed.hostname.toLowerCase();
   parsed.hostname = parsed.hostname.replace(/^www\./, '');
+  parsed.username = '';
+  parsed.password = '';
   parsed.hash = '';
-  for (const key of [...parsed.searchParams.keys()]) if (TRACKING_PARAMETERS.test(key)) parsed.searchParams.delete(key);
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (TRACKING_PARAMETERS.test(key) || SENSITIVE_PARAMETERS.test(key)) parsed.searchParams.delete(key);
+  }
   parsed.searchParams.sort();
   if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, '');
   return parsed.toString();
@@ -42,6 +47,10 @@ function matchesTerm(text, term) {
   // Handle the common VS Code abbreviation without allowing a host such as
   // code.visualstudio.com to masquerade as a lexical "visual studio" hit.
   return compact(needle) === 'vscode' && compact(text).includes('vscode');
+}
+
+function removeOverlappingTerms(terms) {
+  return terms.filter((term) => !terms.some((other) => other !== term && other.length > term.length && other.includes(term)));
 }
 
 function domainMatches(host, domain) {
@@ -88,8 +97,8 @@ export function normalizeResearchResult(raw, context = {}) {
 
 export function scoreResearchSource(source, topic, format, now = new Date()) {
   const text = textOf(source);
-  const matched = topic.includeTerms.filter((term) => matchesTerm(text, term));
-  const excluded = topic.excludeTerms.filter((term) => matchesTerm(text, term));
+  const matched = removeOverlappingTerms(topic.includeTerms.filter((term) => matchesTerm(text, term)));
+  const excluded = removeOverlappingTerms(topic.excludeTerms.filter((term) => matchesTerm(text, term)));
   let host = '';
   try { host = new URL(source.source_url).hostname; } catch { /* normalized inputs are expected */ }
   const preferred = topic.preferredDomains.some((domain) => domainMatches(host, domain));
@@ -130,7 +139,16 @@ export function filterResearchSources(sources, topic, format, options = {}) {
     const excluded = topic.excludeTerms.some((term) => matchesTerm(text, term));
     if (excluded) continue;
     const lexical = source.matched_terms?.length ?? topic.includeTerms.filter((term) => matchesTerm(text, term)).length;
-    if (lexical > 0) {
+    const preferred = source.domain_score === 1;
+    const authoritative = source.source_type?.startsWith('official') || source.source_type === 'repository';
+    // Tips require meaningful lexical coverage; a lone generic term remains
+    // borderline unless the source is both preferred and authoritative.
+    // Trends may admit one term from a preferred/authoritative source because
+    // release headlines are intentionally concise.
+    const lexicalThreshold = format === 'tips' ? 2 : 1;
+    const deterministic = lexical >= lexicalThreshold && (preferred || authoritative);
+    const strongSingleTerm = lexical === 1 && preferred && authoritative;
+    if (deterministic || strongSingleTerm) {
       accepted.push(source);
       continue;
     }
@@ -204,8 +222,11 @@ export async function retrieveResearchSources({
   let dedupedCount = normalizedUnique.size;
   let scoredRows = [...normalizedUnique.values()].map((row) => scoreResearchSource(row, topic, format, now));
   let deterministic = filterResearchSources(scoredRows, topic, format, { now, limit: MAX_RAW });
+  let expansionAttempted = false;
   if (deterministic.length < topic.minimumQualifiedSources) {
-    const expandedRows = await querySearxng({ fetchImpl, searxngUrl, queries: buildResearchQueries(topic, format, true), topic, format, now });
+    expansionAttempted = true;
+    const expandedQueries = buildResearchQueries(topic, format, true);
+    const expandedRows = await querySearxng({ fetchImpl, searxngUrl, queries: expandedQueries, topic, format, now });
     rows = [...rows, ...expandedRows];
     for (const row of expandedRows) normalizedUnique.set(row.source_url, row);
     dedupedCount = normalizedUnique.size;
@@ -216,7 +237,7 @@ export async function retrieveResearchSources({
   const decisions = await runBorderlineClassifier(borderline, topic, format, classifyBorderline);
   const indexDecisions = new Map(borderline.map((row, index) => [row.source_url, decisions[index]]));
   const qualified = filterResearchSources(scoredRows, topic, format, { now, limit: MAX_SOURCES, borderlineDecisions: indexDecisions });
-  const baseDiagnostics = diagnostics(firstQueries.length + (rows.length > firstRows.length ? buildResearchQueries(topic, format, true).length : 0), rows.length, dedupedCount, qualified);
+  const baseDiagnostics = diagnostics(firstQueries.length + (expansionAttempted ? buildResearchQueries(topic, format, true).length : 0), rows.length, dedupedCount, qualified);
   const finalSources = qualified.slice(0, MAX_SOURCES);
   const enough = finalSources.length >= topic.minimumQualifiedSources && primaryCount(finalSources) >= topic.minimumPrimarySources;
   const result = enough ? { status: 'ready', topicSlug, format, sources: finalSources, diagnostics: baseDiagnostics } : {
