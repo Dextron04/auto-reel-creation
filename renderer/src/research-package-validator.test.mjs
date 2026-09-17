@@ -84,6 +84,13 @@ test('accepts a valid Trend candidate with traceable recent evidence', async () 
   assert.equal(result.valid, true);
 });
 
+test('rejects invented Trend timing when cited evidence is only static documentation', async () => {
+  const research = packageFor('git-cli', 'trend');
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence: evidenceFor('git-cli'), research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
+});
+
 test('rejects a recommendation that is not candidates[0]', async () => {
   const first = candidate('git-cli');
   const second = candidate('git-cli', { tool_name: 'Git bisect' });

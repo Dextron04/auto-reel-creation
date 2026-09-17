@@ -123,9 +123,27 @@ function hasConcreteWorkflow(candidate) {
 function whyNowIsTraceable(candidate, cited) {
   const whyNow = String(candidate?.why_now ?? '').trim();
   if (whyNow.length < 16 || !/\b(recent|recently|today|this\s+week|this\s+month|new|release|released|launch|launched|announce|announced|update|updated|version|now|latest|changed|adds?|introduced)\b/i.test(whyNow)) return false;
-  const support = cited.flatMap(({ evidence: source }) => [source?.title, source?.summary, source?.publisher, source?.source_url]);
+  const support = cited.flatMap(({ evidence: source, claim }) => [
+    source?.title,
+    source?.summary,
+    source?.publisher,
+    claim?.statement,
+  ]).filter(nonEmpty);
   const supportTokens = new Set(support.flatMap((value) => [...meaningfulTokens(value)]));
-  return [...meaningfulTokens(whyNow)].some((token) => supportTokens.has(token));
+  const whyTokens = meaningfulTokens(whyNow);
+  const topicOverlap = [...whyTokens].some((token) => supportTokens.has(token));
+  // A static documentation page can mention the same product and still say
+  // nothing about timing. Require an explicit event/change assertion in the
+  // cited evidence or claim, not just a shared word such as "documented".
+  const eventText = support.join(' ').toLowerCase();
+  const hasEventAssertion = /\b(released?|launched?|announced?|announcement|introduced|added|adds|updated|update|available)\b/i.test(eventText)
+    || /\b(?:release\s+notes?|changelog|version\s*(?:\d|[a-z]))\b/i.test(eventText)
+    || /\b(?:19|20)\d{2}\b/.test(eventText);
+  const whyEventTokens = [...whyTokens].filter((token) => /^(new|recent|recently|today|week|month|release|released|launch|launched|announce|announced|update|updated|version|latest|changed|adds|added|introduced|available)$/.test(token));
+  const eventOverlap = whyEventTokens.some((token) => supportTokens.has(token)
+    || (token === 'new' && /\b(?:new|latest|recent)\b/i.test(eventText))
+    || (token === 'now' && /\b(?:available|released|launched|updated)\b/i.test(eventText)));
+  return topicOverlap && hasEventAssertion && eventOverlap;
 }
 
 function isRecent(source, now) {
@@ -237,7 +255,7 @@ export async function validateResearchPackage({
       if (!claim || !nonEmpty(claim.statement) || !claimUrl || !canonicalEvidence.has(claimUrl)) {
         reasons.push(`UNSUPPORTED_CLAIM:${index}:${claimIndex}`);
       } else {
-        cited.push({ url: claimUrl, evidence: canonicalEvidence.get(claimUrl) });
+        cited.push({ url: claimUrl, evidence: canonicalEvidence.get(claimUrl), claim });
       }
     }
     evidenceByCandidate.set(index, cited);
