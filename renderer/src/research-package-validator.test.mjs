@@ -46,7 +46,7 @@ function candidate(slug, overrides = {}) {
 function packageFor(slug, format = 'tips', overrides = {}) {
   const item = candidate(slug, format === 'trend' ? {
     ...candidate(slug),
-    why_now: 'A release this week adds this documented capability.',
+    why_now: `${primaryByTopic[slug][0]} linked checkout support was released this week.`,
     developer_workflow: `Developers can use ${primaryByTopic[slug][0]} in production debugging workflow.`,
   } : {});
   return {
@@ -79,6 +79,31 @@ test('accepts a valid Trend candidate with traceable recent evidence', async () 
     ...evidenceFor('git-cli')[0],
     title: 'Git worktree v2.52 adds linked checkout support',
     summary: 'The dated Git worktree changelog announces the linked checkout change.',
+  }];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
+  assert.equal(result.valid, true);
+});
+
+test('rejects generic Trend event wording when evidence names no change', async () => {
+  const research = packageFor('git-cli', 'trend');
+  research.recommended_topic.why_now = 'A release this week adds this documented capability.';
+  const evidence = [{
+    ...evidenceFor('git-cli')[0],
+    title: 'Git worktree release notes',
+    summary: 'Official changelog entry',
+  }];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
+});
+
+test('accepts equivalent release and add event semantics when a named change overlaps', async () => {
+  const research = packageFor('git-cli', 'trend');
+  research.recommended_topic.why_now = 'Git worktree linked checkout support was released this week.';
+  const evidence = [{
+    ...evidenceFor('git-cli')[0],
+    title: 'Git worktree adds linked checkout support',
+    summary: 'The dated changelog names linked checkout support as the change.',
   }];
   const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
   assert.equal(result.valid, true);

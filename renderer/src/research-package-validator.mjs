@@ -106,12 +106,85 @@ function hasConcretePayoff(candidate) {
 
 const VAGUE_TREND_WORDS = new Set([
   'a', 'an', 'and', 'are', 'can', 'current', 'daily', 'developer', 'developers',
-  'feature', 'for', 'from', 'helps', 'in', 'it', 'new', 'now', 'of', 'on', 'the',
-  'this', 'to', 'use', 'users', 'using', 'workflow', 'works', 'with',
+  'feature', 'features', 'for', 'from', 'helps', 'in', 'it', 'new', 'now', 'of', 'on', 'the',
+  'this', 'to', 'use', 'users', 'using', 'workflow', 'workflows', 'works', 'with',
 ]);
 
+// These words describe when or how a change happened, rather than the
+// capability/entity that changed. They must never satisfy Trend evidence
+// overlap on their own.
+const TREND_TIME_WORDS = new Set([
+  'ago', 'day', 'days', 'latest', 'last', 'month', 'months', 'recent', 'recently',
+  'today', 'tomorrow', 'week', 'weeks', 'year', 'years', 'yesterday',
+]);
+
+const TREND_GENERIC_WORDS = new Set([
+  ...VAGUE_TREND_WORDS,
+  'ability', 'available', 'availability', 'benefit', 'benefits', 'capability', 'capabilities',
+  'change', 'changes', 'changed', 'concrete', 'dated', 'document', 'documented',
+  'documentation', 'entry', 'entries', 'example', 'examples', 'guide', 'guides',
+  'event', 'events', 'improvement', 'improvements', 'important', 'item', 'items', 'named', 'names',
+  'note', 'notes', 'official', 'practical', 'publication', 'publications', 'published',
+  'release', 'source', 'sources', 'specific', 'summary', 'thing', 'things', 'timed', 'timing', 'value',
+]);
+
+function trendEventCategory(word) {
+  if (/^releas/.test(word) || /^launch/.test(word) || /^announc/.test(word)
+    || /^updat/.test(word) || /^introduc/.test(word) || /^chang/.test(word)
+    || /^ship/.test(word) || /^add(?:s|ed|ing)?$/.test(word) || /^version/.test(word)) {
+    return 'change';
+  }
+  // A changelog or release-note label is event context, but not by itself a
+  // trusted assertion that anything changed. The latter distinction is made
+  // by hasTrustedChangeEvent below.
+  if (/^changelog/.test(word) || /^announcement/.test(word)) return 'change';
+  if (word === 'new') return 'change';
+  return null;
+}
+
+function trendEventCategories(value) {
+  const categories = new Set();
+  for (const word of normalized(value).split(' ').filter(Boolean)) {
+    const category = trendEventCategory(word);
+    if (category) categories.add(category);
+  }
+  if (/\bnow\s+supports?\b/i.test(String(value ?? ''))) categories.add('change');
+  return categories;
+}
+
 function meaningfulTokens(value) {
-  return new Set(normalized(value).split(' ').filter((word) => word.length >= 4 && !VAGUE_TREND_WORDS.has(word)));
+  return new Set(normalized(value).split(' ').filter((word) => {
+    if (word.length < 4 || TREND_GENERIC_WORDS.has(word) || TREND_TIME_WORDS.has(word)) return false;
+    return !trendEventCategory(word);
+  }));
+}
+
+function hasCapabilityOverlap(whyTokens, supportTokens) {
+  const shared = [...whyTokens].filter((token) => supportTokens.has(token));
+  if (shared.length >= 2) return true;
+  // A single long, non-generic token can identify a product or named
+  // capability (for example, "worktree" or "opentelemetry"). Short or
+  // generic words such as "git", "support", and "feature" cannot.
+  return shared.some((token) => token.length >= 8);
+}
+
+function hasTrustedChangeEvent(value) {
+  const text = String(value ?? '');
+  const explicitVerb = (
+    /\b(?:released|launch(?:ed|es|ing)|announc(?:ed|es|ing)|introduc(?:ed|es|ing)|add(?:ed|s|ing)|ship(?:ped|s|ping))\b/i.test(text)
+    || /\b(?:release)\s+(?:of|v?\d[\w.-]*|version)\b/i.test(text)
+    || /\brelease\s*[:\-]\s*[a-z]/i.test(text)
+    || /\b(?:release|release\s+notes?|changelog)\b[^.]{0,100}\b(?:announc(?:ed|es)?|introduc(?:ed|es)?|add(?:ed|s)?|ship(?:ped|s)?|chang(?:ed|es)?)\b/i.test(text)
+    || /\b(?:update(?:d)?|change(?:d)?)\b\s+(?:to|with|for)\b/i.test(text)
+    || /\bnow\s+supports?\b/i.test(text)
+    || /\bnew\s+(?:version|feature|capability|option|support)\b/i.test(text)
+    || /\bversion\s+v?\d[\w.-]*\b/i.test(text)
+  );
+  if (!explicitVerb) return false;
+  // A source saying only "release notes" or "changelog entry" is not
+  // enough. The event must name at least one entity/capability in its own
+  // title or summary.
+  return meaningfulTokens(text).size > 0;
 }
 
 function hasConcreteWorkflow(candidate) {
@@ -122,27 +195,23 @@ function hasConcreteWorkflow(candidate) {
 
 function whyNowIsTraceable(candidate, cited) {
   const whyNow = String(candidate?.why_now ?? '').trim();
-  if (whyNow.length < 16 || !/\b(recent|recently|today|this\s+week|this\s+month|new|release|released|launch|launched|announce|announced|update|updated|version|now|latest|changed|adds?|introduced)\b/i.test(whyNow)) return false;
+  const hasRecencySignal = /\b(recent|recently|today|this\s+(?:week|month|year)|last\s+(?:week|month|year)|yesterday|latest|now|ago)\b/i.test(whyNow);
+  const whyEventCategories = trendEventCategories(whyNow);
+  if (whyNow.length < 16 || (!hasRecencySignal && !whyEventCategories.has('change'))) return false;
   const whyTokens = meaningfulTokens(whyNow);
-  const whyEventTokens = [...whyTokens].filter((token) => /^(recent|recently|today|week|month|release|released|launch|launched|announce|announced|update|updated|version|latest|changed|adds|added|introduced)$/.test(token));
   // Claims are intentionally absent here: they prove only that the model
   // cited a supplied URL. Timing must be grounded in trusted evidence text.
   return cited.some(({ evidence: source }) => {
     const publishedAt = new Date(source?.published_at ?? '');
     if (!source?.published_at || Number.isNaN(publishedAt.getTime())) return false;
-    const support = [source?.title, source?.summary, source?.publisher, source?.source_type].filter(nonEmpty).join(' ');
+    const support = [source?.title, source?.summary].filter(nonEmpty).join(' ');
     const supportTokens = meaningfulTokens(support);
-    const topicOverlap = [...whyTokens].some((token) => supportTokens.has(token));
-    const eventText = support.toLowerCase();
-    const hasEventAssertion = (
-      /\b(?:now\s+supports?|new\s+version|version\s*(?:v?\d|[a-z]))\b/i.test(eventText)
-      || /\b(?:released?|launched?|announced?|announcement|introduced)\b/i.test(eventText)
-      || /\b(?:added|adds|changed)\b[^.]{0,80}\b(?:feature|support|capability|option|command|workflow|version|v?\d)\b/i.test(eventText)
-      || /\bupdated?\b[^.]{0,80}\b(?:to|with|feature|support|version|v?\d|adds?|introduces?)\b/i.test(eventText)
-      || /\b(?:release\s+notes?|changelog)\b/i.test(eventText)
-    );
-    const eventOverlap = whyEventTokens.some((token) => supportTokens.has(token));
-    return topicOverlap && hasEventAssertion && eventOverlap;
+    const evidenceEventCategories = trendEventCategories(support);
+    const eventSemanticsMatch = whyEventCategories.size === 0
+      || [...whyEventCategories].some((category) => evidenceEventCategories.has(category));
+    return hasCapabilityOverlap(whyTokens, supportTokens)
+      && eventSemanticsMatch
+      && hasTrustedChangeEvent(support);
   });
 }
 
