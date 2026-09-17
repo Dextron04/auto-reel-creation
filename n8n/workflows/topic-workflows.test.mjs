@@ -107,6 +107,13 @@ test('every wrapper is active so its dashboard webhook stays reachable', () => {
 // Core pipelines: shared, topic-agnostic, retrieval-backed, fail-closed.
 // ---------------------------------------------------------------------------
 
+// A live n8n 2.38.7 instance refused to run a core via Execute Workflow with "Workflow is not
+// active and cannot be executed." even though the core has no independent trigger of its own --
+// n8n requires the invoked sub-workflow to be active regardless of invocation source.
+test('both cores are marked active, or n8n refuses to invoke them via Execute Workflow', () => {
+  for (const { file, workflow } of cores) assert.equal(workflow.active, true, `${file}: must be active for a live n8n instance to execute it as a sub-workflow`);
+});
+
 test('both cores exist exactly once, take only {topicSlug} as input, and are not self-scheduled', () => {
   assert.equal(cores.length, 2);
   for (const { file, workflow } of cores) {
@@ -256,6 +263,63 @@ test('the trend core also judges with Sonnet, closing the audited gap where Tren
   const judgeNode = trend.workflow.nodes.find((node) => node.name === 'Judge Topic with Claude');
   assert.ok(judgeNode, 'Trend Core must have a Judge Topic with Claude node');
   assert.match(judgeNode.parameters.jsonBody, /ANTHROPIC_JUDGE_MODEL/);
+});
+
+// A live production run against real search results and a real model hit exactly the historical
+// incident this whole rewrite exists to close: Claude correctly found zero qualified candidates
+// and returned {recommended_topic: null, candidates: []}, research-package-validator.mjs already
+// treats that shape as a clean NO_IN_SCOPE_RESEARCH result (see its genuinelyEmpty check), but
+// Normalize Research Package required recommended_topic.claims.length to accept a parse at all --
+// so the genuinely-empty, valid answer was misclassified as malformed JSON and crashed the run
+// before the validator ever saw it. This runs the actual node code (not a paraphrase of it) to
+// prove that regression stays fixed.
+function runNodeCode(workflow, nodeName, { json, itemsByNode = {} } = {}) {
+  const node = workflow.nodes.find((n) => n.name === nodeName);
+  assert.ok(node, `missing node ${nodeName}`);
+  const $ = (name) => ({ item: { json: itemsByNode[name] } });
+  const $items = (name) => (itemsByNode[`${name}__items`] ?? [{ json: itemsByNode[name] }]);
+  const fn = new Function('$json', '$', '$items', node.parameters.jsCode);
+  return fn(json, $, $items);
+}
+
+test('Normalize Research Package accepts a genuinely-empty {recommended_topic: null, candidates: []} response instead of throwing RESEARCH_INVALID_JSON', () => {
+  const genuinelyEmpty = { recommended_topic: null, candidates: [], research_policy: { requires_human_review: true, rejection_summary: 'no qualified candidates' } };
+  for (const { file, workflow } of cores) {
+    for (const nodeName of ['Normalize Research Package', 'Normalize Retry Research Package']) {
+      const result = runNodeCode(workflow, nodeName, { json: { response: JSON.stringify(genuinelyEmpty), research_provider: 'anthropic' } });
+      assert.equal(result[0].json.research.recommended_topic, null, `${file}: ${nodeName} must accept a genuinely-empty candidates response`);
+      assert.deepEqual(result[0].json.research.candidates, [], `${file}: ${nodeName}`);
+    }
+  }
+});
+
+test('Normalize Research Package still rejects genuinely malformed output (negative control)', () => {
+  for (const { file, workflow } of cores) {
+    for (const nodeName of ['Normalize Research Package', 'Normalize Retry Research Package']) {
+      assert.throws(
+        () => runNodeCode(workflow, nodeName, { json: { response: 'this is not json at all and has no braces' } }),
+        /RESEARCH_INVALID_JSON/,
+        `${file}: ${nodeName} must still reject truly malformed output, not swallow every failure`,
+      );
+      // A non-empty candidates array with a null recommended_topic is a different, genuine schema
+      // violation (RECOMMENDATION_ORDER territory for the validator) -- the empty-response carve-out
+      // must not accidentally admit it here too.
+      const wrongShape = { recommended_topic: null, candidates: [{ tool_name: 'x' }] };
+      assert.throws(
+        () => runNodeCode(workflow, nodeName, { json: { response: JSON.stringify(wrongShape) } }),
+        /RESEARCH_INVALID_JSON/,
+        `${file}: ${nodeName} must not treat a null recommendation with non-empty candidates as the empty carve-out`,
+      );
+    }
+  }
+});
+
+test('Normalize Research Package still accepts a normal non-empty research response (positive control)', () => {
+  const populated = { recommended_topic: { tool_name: 'Foo', topic: 'Foo does X', claims: [{ claim_id: 'c1', source_url: 'https://example.com' }] }, candidates: [{ tool_name: 'Foo', topic: 'Foo does X', claims: [{ claim_id: 'c1', source_url: 'https://example.com' }] }] };
+  for (const { file, workflow } of cores) {
+    const result = runNodeCode(workflow, 'Normalize Research Package', { json: { response: JSON.stringify(populated) } });
+    assert.equal(result[0].json.research.recommended_topic.tool_name, 'Foo', file);
+  }
 });
 
 test('research retrieval, validation, and record calls request only the core\'s own fixed format', () => {
