@@ -19,6 +19,19 @@
         0
       ],
       "parameters": {
+        "jsCode": "if (typeof $json.topicSlug !== 'string' || !$json.topicSlug) throw new Error('CORE_REQUIRES_TOPIC_SLUG: this shared core must be invoked with {topicSlug} by one of its wrapper workflows (see any topic-*-reel.json Attach Topic Slug node), not run directly in the n8n editor.');\nreturn [{json: $json}];\n"
+      },
+      "id": "guard-topic-slug-provided",
+      "name": "Guard Topic Slug Provided",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2
+    },
+    {
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
         "method": "GET",
         "url": "={{ 'http://renderer:3001/v1/topic-history?namespace=' + $('When Executed by Wrapper').item.json.topicSlug + '-trend&namespace=' + $('When Executed by Wrapper').item.json.topicSlug + '-trend-rejected' }}",
         "options": {
@@ -1546,6 +1559,17 @@
   ],
   "connections": {
     "When Executed by Wrapper": {
+      "main": [
+        [
+          {
+            "node": "Guard Topic Slug Provided",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guard Topic Slug Provided": {
       "main": [
         [
           {

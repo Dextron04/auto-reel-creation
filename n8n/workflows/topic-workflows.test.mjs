@@ -114,6 +114,21 @@ test('both cores are marked active, or n8n refuses to invoke them via Execute Wo
   for (const { file, workflow } of cores) assert.equal(workflow.active, true, `${file}: must be active for a live n8n instance to execute it as a sub-workflow`);
 });
 
+// A manual "Execute workflow" test directly on a core in the n8n editor (rather than through a
+// wrapper) passes no input, so topicSlug was silently undefined and cascaded into a cryptic
+// RESEARCH_TOPIC_UNKNOWN:undefined several nodes downstream -- this asserts the immediate,
+// actionable guard exists and actually throws for that case.
+test('both cores fail immediately with an actionable message when run without a wrapper-supplied topicSlug', () => {
+  for (const { file, workflow } of cores) {
+    const guard = workflow.nodes.find((n) => n.name === 'Guard Topic Slug Provided');
+    assert.ok(guard, `${file}: missing the topicSlug presence guard`);
+    assert.deepEqual(incomingSources(workflow, 'Guard Topic Slug Provided'), ['When Executed by Wrapper'], `${file}: guard must sit directly after the trigger`);
+    const fn = new Function('$json', guard.parameters.jsCode);
+    assert.throws(() => fn({}), /CORE_REQUIRES_TOPIC_SLUG/, `${file}: must reject a missing topicSlug immediately`);
+    assert.doesNotThrow(() => fn({ topicSlug: 'git-cli' }), `${file}: must pass through a real topicSlug unchanged`);
+  }
+});
+
 test('both cores exist exactly once, take only {topicSlug} as input, and are not self-scheduled', () => {
   assert.equal(cores.length, 2);
   for (const { file, workflow } of cores) {
