@@ -123,27 +123,27 @@ function hasConcreteWorkflow(candidate) {
 function whyNowIsTraceable(candidate, cited) {
   const whyNow = String(candidate?.why_now ?? '').trim();
   if (whyNow.length < 16 || !/\b(recent|recently|today|this\s+week|this\s+month|new|release|released|launch|launched|announce|announced|update|updated|version|now|latest|changed|adds?|introduced)\b/i.test(whyNow)) return false;
-  const support = cited.flatMap(({ evidence: source, claim }) => [
-    source?.title,
-    source?.summary,
-    source?.publisher,
-    claim?.statement,
-  ]).filter(nonEmpty);
-  const supportTokens = new Set(support.flatMap((value) => [...meaningfulTokens(value)]));
   const whyTokens = meaningfulTokens(whyNow);
-  const topicOverlap = [...whyTokens].some((token) => supportTokens.has(token));
-  // A static documentation page can mention the same product and still say
-  // nothing about timing. Require an explicit event/change assertion in the
-  // cited evidence or claim, not just a shared word such as "documented".
-  const eventText = support.join(' ').toLowerCase();
-  const hasEventAssertion = /\b(released?|launched?|announced?|announcement|introduced|added|adds|updated|update|available)\b/i.test(eventText)
-    || /\b(?:release\s+notes?|changelog|version\s*(?:\d|[a-z]))\b/i.test(eventText)
-    || /\b(?:19|20)\d{2}\b/.test(eventText);
-  const whyEventTokens = [...whyTokens].filter((token) => /^(new|recent|recently|today|week|month|release|released|launch|launched|announce|announced|update|updated|version|latest|changed|adds|added|introduced|available)$/.test(token));
-  const eventOverlap = whyEventTokens.some((token) => supportTokens.has(token)
-    || (token === 'new' && /\b(?:new|latest|recent)\b/i.test(eventText))
-    || (token === 'now' && /\b(?:available|released|launched|updated)\b/i.test(eventText)));
-  return topicOverlap && hasEventAssertion && eventOverlap;
+  const whyEventTokens = [...whyTokens].filter((token) => /^(recent|recently|today|week|month|release|released|launch|launched|announce|announced|update|updated|version|latest|changed|adds|added|introduced)$/.test(token));
+  // Claims are intentionally absent here: they prove only that the model
+  // cited a supplied URL. Timing must be grounded in trusted evidence text.
+  return cited.some(({ evidence: source }) => {
+    const publishedAt = new Date(source?.published_at ?? '');
+    if (!source?.published_at || Number.isNaN(publishedAt.getTime())) return false;
+    const support = [source?.title, source?.summary, source?.publisher, source?.source_type].filter(nonEmpty).join(' ');
+    const supportTokens = meaningfulTokens(support);
+    const topicOverlap = [...whyTokens].some((token) => supportTokens.has(token));
+    const eventText = support.toLowerCase();
+    const hasEventAssertion = (
+      /\b(?:now\s+supports?|new\s+version|version\s*(?:v?\d|[a-z]))\b/i.test(eventText)
+      || /\b(?:released?|launched?|announced?|announcement|introduced)\b/i.test(eventText)
+      || /\b(?:added|adds|changed)\b[^.]{0,80}\b(?:feature|support|capability|option|command|workflow|version|v?\d)\b/i.test(eventText)
+      || /\bupdated?\b[^.]{0,80}\b(?:to|with|feature|support|version|v?\d|adds?|introduces?)\b/i.test(eventText)
+      || /\b(?:release\s+notes?|changelog)\b/i.test(eventText)
+    );
+    const eventOverlap = whyEventTokens.some((token) => supportTokens.has(token));
+    return topicOverlap && hasEventAssertion && eventOverlap;
+  });
 }
 
 function isRecent(source, now) {

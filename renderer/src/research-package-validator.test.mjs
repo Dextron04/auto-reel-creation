@@ -77,8 +77,8 @@ test('accepts a valid Trend candidate with traceable recent evidence', async () 
   const research = packageFor('git-cli', 'trend');
   const evidence = [{
     ...evidenceFor('git-cli')[0],
-    title: 'Git worktree release update',
-    summary: 'The Git worktree release update adds a documented workflow.',
+    title: 'Git worktree v2.52 adds linked checkout support',
+    summary: 'The dated Git worktree changelog announces the linked checkout change.',
   }];
   const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
   assert.equal(result.valid, true);
@@ -87,6 +87,26 @@ test('accepts a valid Trend candidate with traceable recent evidence', async () 
 test('rejects invented Trend timing when cited evidence is only static documentation', async () => {
   const research = packageFor('git-cli', 'trend');
   const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence: evidenceFor('git-cli'), research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
+});
+
+test('does not treat fabricated claim prose as Trend timing evidence', async () => {
+  const research = packageFor('git-cli', 'trend');
+  research.recommended_topic.claims[0].statement = research.recommended_topic.why_now;
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence: evidenceFor('git-cli'), research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
+});
+
+test('rejects generic available or updated wording in static documentation', async () => {
+  const research = packageFor('git-cli', 'trend');
+  const evidence = [{
+    ...evidenceFor('git-cli')[0],
+    title: 'Git worktree updated documentation is available',
+    summary: 'The static guide is available for developers.',
+  }];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
   assert.equal(result.valid, false);
   assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
 });
