@@ -149,6 +149,7 @@ test('the existing 256 KB JSON body limit remains enforced', async () => {
   await withServer({retrieveResearchSources: async () => ({status: 'ready'})}, async (base) => {
     const oversized = await request(base, '/v1/research/sources', JSON.stringify({topicSlug: 'editor-ide', format: 'tips', padding: 'x'.repeat(300 * 1024)}), {raw: true});
     assert.equal(oversized.status, 413);
+    assert.deepEqual(oversized.body, {error: 'REQUEST_BODY_TOO_LARGE'});
   });
 });
 

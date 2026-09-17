@@ -172,6 +172,15 @@ export function createApp(dependencies = {}) {
       res.status(isResearchInputError(error) ? 400 : 502).json({error: messageOf(error)});
     }
   });
+  // Body-parser errors happen before a route handler runs. Handle only the
+  // existing JSON size limit here so clients receive a clean API response;
+  // all other errors retain Express's established default behavior.
+  app.use((error, _req, res, next) => {
+    if (error?.type === 'entity.too.large' || error?.status === 413) {
+      return res.status(413).json({error: 'REQUEST_BODY_TOO_LARGE'});
+    }
+    return next(error);
+  });
   return app;
 }
 
