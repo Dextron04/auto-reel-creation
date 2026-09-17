@@ -73,6 +73,17 @@ test('canonicalizes claim URLs when checking evidence membership without rewriti
   assert.equal(research.recommended_topic.claims[0].source_url, original);
 });
 
+test('accepts a valid Trend candidate with traceable recent evidence', async () => {
+  const research = packageFor('git-cli', 'trend');
+  const evidence = [{
+    ...evidenceFor('git-cli')[0],
+    title: 'Git worktree release update',
+    summary: 'The Git worktree release update adds a documented workflow.',
+  }];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
+  assert.equal(result.valid, true);
+});
+
 test('rejects a recommendation that is not candidates[0]', async () => {
   const first = candidate('git-cli');
   const second = candidate('git-cli', { tool_name: 'Git bisect' });
@@ -131,6 +142,13 @@ test('rejects missing format-specific Tips and Trend fields', async () => {
   assert.equal(result.valid, false);
   assert.equal(result.failureCode, 'MISSING_REQUIRED_FIELD');
 
+  const missingTipsFields = packageFor('editor-ide');
+  delete missingTipsFields.recommended_topic.one_line_value;
+  delete missingTipsFields.recommended_topic.who_it_helps;
+  result = await validateResearchPackage({ topicSlug: 'editor-ide', format: 'tips', evidence: evidenceFor('editor-ide'), research: missingTipsFields });
+  assert.equal(result.valid, false);
+  assert.equal(result.failureCode, 'MISSING_REQUIRED_FIELD');
+
   const trend = packageFor('git-cli', 'trend');
   delete trend.recommended_topic.why_now;
   result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence: evidenceFor('git-cli'), research: trend });
@@ -143,6 +161,68 @@ test('maps a valid empty result to NO_IN_SCOPE_RESEARCH, not invalid JSON', asyn
   assert.equal(result.valid, false);
   assert.equal(result.failureCode, 'NO_IN_SCOPE_RESEARCH');
   assert.equal(result.diagnostics.outcome, 'no_in_scope_research');
+});
+
+test('rejects malformed no-result statuses instead of treating them as an empty skip', async () => {
+  const item = candidate('editor-ide');
+  let result = await validateResearchPackage({
+    topicSlug: 'editor-ide', format: 'tips', evidence: evidenceFor('editor-ide'),
+    research: { status: 'no_in_scope_research', recommended_topic: item, candidates: [item] },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.failureCode, 'INVALID_RESEARCH');
+  assert.ok(result.reasons.includes('MALFORMED_NO_RESULT'));
+
+  result = await validateResearchPackage({
+    topicSlug: 'editor-ide', format: 'tips', evidence: evidenceFor('editor-ide'),
+    research: { status: 'no_in_scope_research', recommended_topic: null, candidates: {} },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.failureCode, 'INVALID_RESEARCH');
+});
+
+test('preserves primary authority when duplicate evidence URLs differ in source type', async () => {
+  const research = packageFor('editor-ide');
+  const row = evidenceFor('editor-ide')[0];
+  const evidence = [
+    { ...row, source_type: 'article' },
+    { ...row, source_type: 'official-docs' },
+  ];
+  const result = await validateResearchPackage({ topicSlug: 'editor-ide', format: 'tips', evidence, research });
+  assert.equal(result.valid, true);
+  assert.equal(result.diagnostics.primaryEvidenceCount, 1);
+});
+
+test('suppresses classification for deterministic exclusions and unknown evidence URLs', async () => {
+  let calls = 0;
+  const excluded = candidate('editor-ide', { topic: 'AI SDK Harness', tool_name: 'AI SDK Harness', category: 'agents' });
+  let result = await validateResearchPackage({
+    topicSlug: 'editor-ide', format: 'tips', evidence: evidenceFor('editor-ide'),
+    research: { recommended_topic: excluded, candidates: [excluded] },
+    classifyCandidate: async () => { calls += 1; return [{ in_scope: true, confidence: 1 }]; },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(calls, 0);
+
+  const unknown = candidate('editor-ide', { claims: [{ statement: 'Unsupported.', source_url: 'https://unknown.example/item' }] });
+  result = await validateResearchPackage({
+    topicSlug: 'editor-ide', format: 'tips', evidence: evidenceFor('editor-ide'),
+    research: { recommended_topic: unknown, candidates: [unknown] },
+    classifyCandidate: async () => { calls += 1; return [{ in_scope: true, confidence: 1 }]; },
+  });
+  assert.equal(result.valid, false);
+  assert.equal(result.failureCode, 'UNSUPPORTED_CLAIM');
+  assert.equal(calls, 0);
+});
+
+test('rejects vague Trend workflow and untraceable why-now boilerplate', async () => {
+  const research = packageFor('git-cli', 'trend');
+  research.recommended_topic.developer_workflow = 'Improves the developer workflow.';
+  research.recommended_topic.why_now = 'This is important now for everyone.';
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence: evidenceFor('git-cli'), research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WORKFLOW_REQUIRED')));
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
 });
 
 test('uses the injected classifier only for ambiguous candidates', async () => {

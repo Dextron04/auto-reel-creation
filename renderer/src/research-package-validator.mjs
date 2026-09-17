@@ -10,7 +10,7 @@ const COMMON_FIELDS = [
 ];
 const FORMAT_FIELDS = {
   tips: [
-    'what_it_is', 'why_not_obvious', 'concrete_payoff',
+    'one_line_value', 'what_it_is', 'why_not_obvious', 'concrete_payoff', 'who_it_helps',
   ],
   trend: [
     'one_line_value', 'developer_workflow', 'who_it_helps', 'why_now', 'why_it_matters',
@@ -104,6 +104,30 @@ function hasConcretePayoff(candidate) {
   return /\b(avoid|catch|find|fix|reduce|save|remove|surface|prevent|before|after|fewer|less|more|seconds?|minutes?|hours?|ms|latency|query|bug|error|friction|steps?|time)\b/i.test(payoff);
 }
 
+const VAGUE_TREND_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'can', 'current', 'daily', 'developer', 'developers',
+  'feature', 'for', 'from', 'helps', 'in', 'it', 'new', 'now', 'of', 'on', 'the',
+  'this', 'to', 'use', 'users', 'using', 'workflow', 'works', 'with',
+]);
+
+function meaningfulTokens(value) {
+  return new Set(normalized(value).split(' ').filter((word) => word.length >= 4 && !VAGUE_TREND_WORDS.has(word)));
+}
+
+function hasConcreteWorkflow(candidate) {
+  const workflow = String(candidate?.developer_workflow ?? '').trim();
+  if (workflow.length < 18 || /^(improves?|optimizes?|helps?|supports?)\s+(the\s+)?(developer\s+)?workflow\.?$/i.test(workflow)) return false;
+  return /\b(use|run|enable|configure|inspect|query|index|trace|debug|profile|commit|branch|rebase|worktree|instrument|deploy|measure|compare|find|fix|automate)\b/i.test(workflow);
+}
+
+function whyNowIsTraceable(candidate, cited) {
+  const whyNow = String(candidate?.why_now ?? '').trim();
+  if (whyNow.length < 16 || !/\b(recent|recently|today|this\s+week|this\s+month|new|release|released|launch|launched|announce|announced|update|updated|version|now|latest|changed|adds?|introduced)\b/i.test(whyNow)) return false;
+  const support = cited.flatMap(({ evidence: source }) => [source?.title, source?.summary, source?.publisher, source?.source_url]);
+  const supportTokens = new Set(support.flatMap((value) => [...meaningfulTokens(value)]));
+  return [...meaningfulTokens(whyNow)].some((token) => supportTokens.has(token));
+}
+
 function isRecent(source, now) {
   if (!source?.published_at) return false;
   const published = new Date(source.published_at);
@@ -148,9 +172,15 @@ export async function validateResearchPackage({
 
   const candidates = research?.candidates;
   const recommended = research?.recommended_topic;
-  const emptyOutcome = research?.status === 'no_in_scope_research'
-    || (Array.isArray(candidates) && candidates.length === 0 && (recommended == null));
-  if (emptyOutcome) {
+  const noResultStatus = research?.status === 'no_in_scope_research';
+  const genuinelyEmpty = (candidates == null || (Array.isArray(candidates) && candidates.length === 0)) && recommended == null;
+  if (noResultStatus && genuinelyEmpty) {
+    return failure('NO_IN_SCOPE_RESEARCH', ['NO_IN_SCOPE_RESEARCH'], { ...diagnostics, outcome: 'no_in_scope_research' });
+  }
+  if (noResultStatus) {
+    return failure('INVALID_RESEARCH', ['MALFORMED_NO_RESULT'], { ...diagnostics, outcome: 'invalid_research' });
+  }
+  if (Array.isArray(candidates) && candidates.length === 0 && recommended == null) {
     return failure('NO_IN_SCOPE_RESEARCH', ['NO_IN_SCOPE_RESEARCH'], { ...diagnostics, outcome: 'no_in_scope_research' });
   }
   if (!research || typeof research !== 'object' || Array.isArray(research)) {
@@ -166,9 +196,13 @@ export async function validateResearchPackage({
   const canonicalEvidence = new Map();
   for (const row of rows) {
     const url = evidenceUrl(row);
-    if (url) canonicalEvidence.set(url, row);
+    if (!url) continue;
+    const existing = canonicalEvidence.get(url);
+    // Keep whichever duplicate carries primary authority. This prevents a
+    // later low-authority row from erasing an official/repository source.
+    if (!existing || (!isPrimary(existing) && isPrimary(row))) canonicalEvidence.set(url, row);
   }
-  diagnostics.primaryEvidenceCount = rows.filter(isPrimary).length;
+  diagnostics.primaryEvidenceCount = [...canonicalEvidence.values()].filter(isPrimary).length;
   const reasons = [];
   const ambiguous = [];
   const evidenceByCandidate = new Map();
@@ -212,8 +246,8 @@ export async function validateResearchPackage({
       if (!hasSpecificAction(candidate)) reasons.push(`TIP_ACTION_REQUIRED:${index}`);
       if (!hasConcretePayoff(candidate)) reasons.push(`TIP_PAYOFF_REQUIRED:${index}`);
     } else {
-      if (!nonEmpty(candidate.why_now)) reasons.push(`TREND_WHY_NOW_REQUIRED:${index}`);
-      if (!nonEmpty(candidate.developer_workflow)) reasons.push(`TREND_WORKFLOW_REQUIRED:${index}`);
+      if (!hasConcreteWorkflow(candidate)) reasons.push(`TREND_WORKFLOW_REQUIRED:${index}`);
+      if (!whyNowIsTraceable(candidate, cited)) reasons.push(`TREND_WHY_NOW_REQUIRED:${index}`);
       if (!cited.some(({ evidence: source }) => isRecent(source, now))) reasons.push(`TREND_RECENT_EVIDENCE_REQUIRED:${index}`);
     }
   }
