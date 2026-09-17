@@ -109,6 +109,32 @@ test('accepts equivalent release and add event semantics when a named change ove
   assert.equal(result.valid, true);
 });
 
+test('rejects worktree release-note wording without the named linked-checkout change', async () => {
+  const research = packageFor('git-cli', 'trend');
+  research.recommended_topic.why_now = 'Git worktree linked checkout support was released this week.';
+  const evidence = [{
+    ...evidenceFor('git-cli')[0],
+    title: 'Git worktree release notes announced',
+    summary: '',
+  }];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
+});
+
+test('rejects a bare worktree release without the named linked-checkout change', async () => {
+  const research = packageFor('git-cli', 'trend');
+  research.recommended_topic.why_now = 'Git worktree linked checkout support was released this week.';
+  const evidence = [{
+    ...evidenceFor('git-cli')[0],
+    title: 'Git worktree was released',
+    summary: '',
+  }];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
+  assert.equal(result.valid, false);
+  assert.ok(result.reasons.some((reason) => reason.startsWith('TREND_WHY_NOW_REQUIRED')));
+});
+
 test('rejects invented Trend timing when cited evidence is only static documentation', async () => {
   const research = packageFor('git-cli', 'trend');
   const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence: evidenceFor('git-cli'), research });

@@ -161,11 +161,9 @@ function meaningfulTokens(value) {
 
 function hasCapabilityOverlap(whyTokens, supportTokens) {
   const shared = [...whyTokens].filter((token) => supportTokens.has(token));
-  if (shared.length >= 2) return true;
-  // A single long, non-generic token can identify a product or named
-  // capability (for example, "worktree" or "opentelemetry"). Short or
-  // generic words such as "git", "support", and "feature" cannot.
-  return shared.some((token) => token.length >= 8);
+  // Prefer a false-negative skip over allowing a product/entity name alone
+  // to validate an invented changed capability.
+  return shared.length >= 2;
 }
 
 function hasTrustedChangeEvent(value) {
