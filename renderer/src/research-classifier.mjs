@@ -22,7 +22,7 @@ function clampConfidence(value) {
   return Math.max(0, Math.min(1, number));
 }
 
-function promptFor(scope, items, kind) {
+function promptFor(scope, items) {
   const evidence = items.map((item) => ({
     id: item.id,
     title: safeText(item.title),
@@ -31,7 +31,6 @@ function promptFor(scope, items, kind) {
   return [
     'You are a constrained semantic classifier for research evidence.',
     'Classify each item only against the immutable registry scope below.',
-    `Classification kind: ${kind}`,
     `Immutable registry scope: ${scope}`,
     '',
     'Return ONLY a JSON array. Each output object must contain exactly these keys: id, in_scope, confidence, reason.',
@@ -59,7 +58,8 @@ function textFromBody(body) {
   return '';
 }
 
-async function bodyOf(response) {
+async function bodyOf(response, { stream = false } = {}) {
+  if (stream && typeof response?.text === 'function') return response.text();
   if (typeof response?.json === 'function') {
     try { return await response.json(); } catch { /* stream responses are not JSON documents */ }
   }
@@ -159,7 +159,7 @@ async function classifyWithQwen({ fetchImpl, prompt, env }) {
     }),
   });
   if (!response?.ok) throw new Error(`CLASSIFIER_OLLAMA_HTTP:${response?.status ?? 'unknown'}`);
-  const body = await bodyOf(response);
+  const body = await bodyOf(response, { stream: true });
   return parseClassifierOutput(textFromBody(body));
 }
 
@@ -180,7 +180,9 @@ export async function classifyResearchItems({
     summary: safeText(item?.summary),
   }));
   if (normalizedItems.some((item) => !itemId(item.id))) throw new Error('CLASSIFIER_ITEM_ID_REQUIRED');
-  const prompt = promptFor(scope, normalizedItems, safeText(kind) || 'research-source');
+  // `kind` remains part of the public interface for callers, but never enters
+  // the model prompt: registry scope is the sole policy supplied to the model.
+  const prompt = promptFor(scope, normalizedItems);
   let rows;
   if (safeText(env?.ANTHROPIC_API_KEY)) {
     try {
