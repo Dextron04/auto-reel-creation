@@ -189,6 +189,37 @@ test('every core validates research before it can reach dialogue, with one bound
   }
 });
 
+// A live run against a real model reproduced this exact waste: the validator's failureCode
+// NO_IN_SCOPE_RESEARCH means the model was correctly given qualified evidence and correctly found
+// no real candidate in it -- retrying spends a second model call to re-ask the identical question
+// against the identical evidence, which can only ever repeat the same answer. Both the first and
+// retry validation results must intercept that specific failureCode before it reaches the
+// content-defect retry/invalid-research path.
+test('a validator NO_IN_SCOPE_RESEARCH result short-circuits straight to a skip instead of spending the bounded retry on an unwinnable re-ask', () => {
+  for (const { file, workflow } of cores) {
+    const gates = [
+      ['Research Genuinely Empty?', 'Route Research Validation Result', 'Research Valid?'],
+      ['Retry Research Genuinely Empty?', 'Route Retry Research Validation Result', 'Retry Research Valid?'],
+    ];
+    for (const [gate, validationSource, fallthrough] of gates) {
+      const node = workflow.nodes.find((n) => n.name === gate);
+      assert.ok(node, `${file}: missing ${gate}`);
+      assert.deepEqual(incomingSources(workflow, gate), [validationSource], `${file}: ${gate} must sit directly after its validation call`);
+      assert.deepEqual(new Set(outgoing(workflow, gate)), new Set(['Tag Skip: No In-Scope Research', fallthrough]), `${file}: ${gate} must branch to the shared skip or fall through to ${fallthrough}`);
+    }
+    // Behavioral: feed the tag node a validator-shaped payload (reasons array, no `reason` field)
+    // and confirm it still extracts a human-readable reason instead of dropping it to null.
+    const tag = workflow.nodes.find((n) => n.name === 'Tag Skip: No In-Scope Research');
+    const fn = new Function('$json', '$', tag.parameters.jsCode);
+    const result = fn(
+      { valid: false, failureCode: 'NO_IN_SCOPE_RESEARCH', reasons: ['NO_IN_SCOPE_RESEARCH'], diagnostics: { qualifiedCount: 5 } },
+      () => ({ item: { json: { topicSlug: 'git-cli' } } }),
+    );
+    assert.equal(result[0].json.outcome, 'no_in_scope_research', file);
+    assert.equal(result[0].json.reason, 'NO_IN_SCOPE_RESEARCH', `${file}: must extract a reason from the validator's reasons array, not just retrieval's singular reason field`);
+  }
+});
+
 test('both formats have a topic-aware editorial judge with a defense-in-depth topic-membership check', () => {
   for (const { file, workflow } of cores) {
     const judgePrompt = workflow.nodes.find((n) => n.name === 'Build Judgement Prompt');

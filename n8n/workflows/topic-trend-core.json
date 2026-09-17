@@ -109,7 +109,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "return [{json: {topicSlug: $('When Executed by Wrapper').item.json.topicSlug, format: 'trend', outcome: 'no_in_scope_research', diagnostics: $json.diagnostics ?? null, reason: $json.reason ?? null}}];\n"
+        "jsCode": "return [{json: {topicSlug: $('When Executed by Wrapper').item.json.topicSlug, format: 'trend', outcome: 'no_in_scope_research', diagnostics: $json.diagnostics ?? null, reason: $json.reason ?? (Array.isArray($json.reasons) ? $json.reasons.join('; ') : null)}}];\n"
       },
       "id": "tag-skip-no-sources",
       "name": "Tag Skip: No In-Scope Research",
@@ -322,6 +322,39 @@
       "name": "Route Research Validation Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
+    },
+    {
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "research-genuinely-empty-cond",
+              "leftValue": "={{$json.valid === false && $json.failureCode === 'NO_IN_SCOPE_RESEARCH'}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "research-genuinely-empty",
+      "name": "Research Genuinely Empty?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2
     },
     {
       "position": [
@@ -562,6 +595,39 @@
       "name": "Route Retry Research Validation Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
+    },
+    {
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "retry-research-genuinely-empty-cond",
+              "leftValue": "={{$json.valid === false && $json.failureCode === 'NO_IN_SCOPE_RESEARCH'}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "retry-research-genuinely-empty",
+      "name": "Retry Research Genuinely Empty?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2
     },
     {
       "position": [
@@ -1629,6 +1695,24 @@
       "main": [
         [
           {
+            "node": "Research Genuinely Empty?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Genuinely Empty?": {
+      "main": [
+        [
+          {
+            "node": "Tag Skip: No In-Scope Research",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
             "node": "Research Valid?",
             "type": "main",
             "index": 0
@@ -1740,6 +1824,24 @@
     },
     "Route Retry Research Validation Result": {
       "main": [
+        [
+          {
+            "node": "Retry Research Genuinely Empty?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Research Genuinely Empty?": {
+      "main": [
+        [
+          {
+            "node": "Tag Skip: No In-Scope Research",
+            "type": "main",
+            "index": 0
+          }
+        ],
         [
           {
             "node": "Retry Research Valid?",
