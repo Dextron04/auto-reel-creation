@@ -77,12 +77,28 @@ function sourceTypeFor(url, publisher, raw) {
   return 'article';
 }
 
+// SearXNG's general-category results almost never carry a publishedDate field, even for official
+// changelog/release-notes pages that plainly embed one in their own URL (e.g. .../posts/2026-07-28
+// or .../releases/2026-03/dotnet.html) -- a live run found zero of twelve real results with a
+// usable date from any raw field, which made the Trend format's recency check structurally
+// unsatisfiable regardless of content quality. This is a best-effort fallback, not a citation: it
+// only ever fills in published_at when every other signal is absent.
+function dateFromUrl(url) {
+  const match = String(url).match(/(\d{4})[-/](\d{2})(?:[-/](\d{2}))?(?=[-/]|$|[^\d])/);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  if (Number(month) < 1 || Number(month) > 12) return null;
+  if (day && (Number(day) < 1 || Number(day) > 31)) return null;
+  const date = new Date(`${year}-${month}-${day ?? '01'}`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export function normalizeResearchResult(raw, context = {}) {
   const sourceUrl = canonicalizeResearchUrl(raw?.url ?? raw?.result_url ?? raw?.source_url);
   if (!sourceUrl) return null;
   const topic = context.topic;
   const retrieved = context.now instanceof Date ? context.now : new Date(context.now ?? Date.now());
-  const publishedAt = raw?.published_at ?? raw?.publishedDate ?? raw?.published ?? raw?.date ?? null;
+  const publishedAt = raw?.published_at ?? raw?.publishedDate ?? raw?.published ?? raw?.date ?? dateFromUrl(sourceUrl);
   const publisher = raw?.publisher || publisherFor(sourceUrl);
   const parsedPublishedAt = publishedAt ? new Date(publishedAt) : null;
   return {

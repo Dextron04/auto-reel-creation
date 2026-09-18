@@ -43,6 +43,37 @@ test('preferred domains receive an authority boost', () => {
   assert.ok(scoreResearchSource(preferred, topic, 'tips', now).authority_score > scoreResearchSource(community, topic, 'tips', now).authority_score);
 });
 
+// A live production run against 12 real SearXNG results found zero with a usable published_at
+// from any raw field, even for official changelog/release-notes pages that plainly embed a date
+// in their own URL -- which made the Trend format's recency check (research-package-validator.mjs
+// isRecent()) structurally unsatisfiable regardless of content quality. This locks in the fix.
+test('normalizeResearchResult falls back to a date embedded in the URL when no other date field is present', () => {
+  const cases = [
+    ['https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate', '2026-07-28T00:00:00.000Z'],
+    ['https://blog.modelcontextprotocol.io/posts/2025-11-25-first-mcp-anniversary', '2025-11-25T00:00:00.000Z'],
+    ['https://azure.github.io/azure-sdk/releases/2026-03/dotnet.html', '2026-03-01T00:00:00.000Z'],
+  ];
+  for (const [url, expected] of cases) {
+    // Matches the real SearXNG "general" category result shape: no publishedDate/published/date
+    // field at all, which is exactly what a live run found for every one of 12 real results.
+    const result = normalizeResearchResult({ url, title: 'Release notes' }, { topic, format: 'trend', query: 'x', now });
+    assert.equal(result.published_at, expected, url);
+  }
+});
+
+test('the URL-date fallback never overrides a real date field, and ignores non-date-shaped URLs', () => {
+  const withRealDate = normalizeResearchResult({ url: 'https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate', title: 'x', publishedDate: '2020-01-01T00:00:00.000Z' }, { topic, format: 'trend', query: 'x', now });
+  assert.equal(withRealDate.published_at, '2020-01-01T00:00:00.000Z', 'a real date field must win over a URL-embedded guess');
+
+  const noDateShape = normalizeResearchResult({ url: 'https://github.com/microsoft/agent-framework/releases', title: 'Releases' }, { topic, format: 'trend', query: 'x', now });
+  assert.equal(noDateShape.published_at, null, 'a URL with no embedded date must stay null, not be invented');
+
+  // A version-number-shaped path segment (v2/04, or a bare port-looking number) must not be
+  // misread as a year -- the regex requires a 4-digit year followed by a plausible month.
+  const versionLike = normalizeResearchResult({ url: 'https://example.com/docs/v2/04/setup', title: 'Setup guide' }, { topic, format: 'trend', query: 'x', now });
+  assert.equal(versionLike.published_at, null, 'a non-date path must not be misread as a date');
+});
+
 test('explicit exclusions reject an otherwise matching source', () => {
   const excluded = normalizeResearchResult(raw('https://code.visualstudio.com/docs', 'VS Code agent harness cloud deployment'), { topic, format: 'tips', query: 'VS Code', now });
   assert.equal(filterResearchSources([excluded], topic, 'tips', { now }).length, 0);
