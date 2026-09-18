@@ -198,9 +198,11 @@ test('every core validates research before it can reach dialogue, with one bound
     assert.ok(workflow.nodes.some((n) => n.name === 'Research Valid?' && n.type === 'n8n-nodes-base.if'), `${file}: missing the valid/invalid branch`);
     assert.ok(workflow.nodes.some((n) => n.name === 'Build Research Retry Prompt'), `${file}: missing the bounded retry`);
     assert.ok(workflow.nodes.some((n) => n.name === 'Retry Research Valid?'), `${file}: retry must itself be validated once, not looped indefinitely`);
-    // The retry prompt must only ever be reached from the first Research Valid? gate -- if
-    // anything else points at it, the retry is no longer bounded to exactly one attempt.
-    assert.deepEqual(incomingSources(workflow, 'Build Research Retry Prompt'), ['Research Valid?'], `${file}: retry path is not bounded to a single attempt`);
+    // The retry prompt must only ever be reached from the first Research Valid? gate (a validator
+    // rejection) or the first Research Parsed? gate (a raw JSON-parse failure) -- if anything else
+    // points at it, including a path back into itself or into Research with Claude, the retry is
+    // no longer bounded to exactly one attempt.
+    assert.deepEqual(new Set(incomingSources(workflow, 'Build Research Retry Prompt')), new Set(['Research Valid?', 'Research Parsed?']), `${file}: retry path is not bounded to a single attempt`);
   }
 });
 
@@ -232,6 +234,25 @@ test('a validator NO_IN_SCOPE_RESEARCH result short-circuits straight to a skip 
     );
     assert.equal(result[0].json.outcome, 'no_in_scope_research', file);
     assert.equal(result[0].json.reason, 'NO_IN_SCOPE_RESEARCH', `${file}: must extract a reason from the validator's reasons array, not just retrieval's singular reason field`);
+  }
+});
+
+// A live run reproduced this exact crash: a real, non-empty, well-terminated Claude response
+// still failed strict JSON extraction, and there was no branch for that at all -- the Code node
+// just threw, failing the whole execution. Both the first and retry parse must route through the
+// exact same bounded retry-then-skip path, one stage earlier than validation.
+test('a raw JSON-parse failure routes through the bounded retry, not a crash', () => {
+  for (const { file, workflow } of cores) {
+    const gates = [
+      ['Research Parsed?', 'Normalize Research Package', 'Validate Topic Research Package', 'Build Research Retry Prompt'],
+      ['Retry Research Parsed?', 'Normalize Retry Research Package', 'Validate Retry Research Package', 'Tag Skip: Invalid Research'],
+    ];
+    for (const [gate, normalizeSource, validatePath, failPath] of gates) {
+      const node = workflow.nodes.find((n) => n.name === gate);
+      assert.ok(node, `${file}: missing ${gate}`);
+      assert.deepEqual(incomingSources(workflow, gate), [normalizeSource], `${file}: ${gate} must sit directly after its normalize call`);
+      assert.deepEqual(new Set(outgoing(workflow, gate)), new Set([validatePath, failPath]), `${file}: ${gate} must branch to validation or the parse-failure path`);
+    }
   }
 });
 
@@ -339,23 +360,25 @@ test('Normalize Research Package accepts a genuinely-empty {recommended_topic: n
   }
 });
 
-test('Normalize Research Package still rejects genuinely malformed output (negative control)', () => {
+// A live run against a real model reproduced this exact failure: a complete, well-terminated
+// (stop_reason: end_turn) 14KB Claude response still could not be strictly parsed into the
+// expected schema. Normalize Research Package used to throw outright on that -- crashing the
+// whole n8n execution -- instead of the bounded retry-then-skip the spec requires for "model
+// returns invalid JSON". It must return a parse_failed marker instead of throwing, so the
+// downstream Research/Retry Parsed? gate can route it through the same retry path a validator
+// rejection already uses, not swallow it silently.
+test('Normalize Research Package reports genuinely malformed output as parse_failed instead of crashing the execution (negative control)', () => {
   for (const { file, workflow } of cores) {
     for (const nodeName of ['Normalize Research Package', 'Normalize Retry Research Package']) {
-      assert.throws(
-        () => runNodeCode(workflow, nodeName, { json: { response: 'this is not json at all and has no braces' } }),
-        /RESEARCH_INVALID_JSON/,
-        `${file}: ${nodeName} must still reject truly malformed output, not swallow every failure`,
-      );
+      const malformed = runNodeCode(workflow, nodeName, { json: { response: 'this is not json at all and has no braces' } });
+      assert.equal(malformed[0].json.parse_failed, true, `${file}: ${nodeName} must report a parse failure, not swallow every failure`);
+      assert.equal(malformed[0].json.research, undefined, `${file}: ${nodeName} must not fabricate a research object for malformed output`);
       // A non-empty candidates array with a null recommended_topic is a different, genuine schema
       // violation (RECOMMENDATION_ORDER territory for the validator) -- the empty-response carve-out
       // must not accidentally admit it here too.
       const wrongShape = { recommended_topic: null, candidates: [{ tool_name: 'x' }] };
-      assert.throws(
-        () => runNodeCode(workflow, nodeName, { json: { response: JSON.stringify(wrongShape) } }),
-        /RESEARCH_INVALID_JSON/,
-        `${file}: ${nodeName} must not treat a null recommendation with non-empty candidates as the empty carve-out`,
-      );
+      const result = runNodeCode(workflow, nodeName, { json: { response: JSON.stringify(wrongShape) } });
+      assert.equal(result[0].json.parse_failed, true, `${file}: ${nodeName} must not treat a null recommendation with non-empty candidates as the empty carve-out`);
     }
   }
 });

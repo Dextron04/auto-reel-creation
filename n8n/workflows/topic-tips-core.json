@@ -280,12 +280,45 @@
         0
       ],
       "parameters": {
-        "jsCode": "const payload = $json;\nlet raw = '';\nif (typeof payload === 'string') raw = payload;\nelse if (typeof payload.body === 'string') raw = payload.body;\nelse if (typeof payload.data === 'string') raw = payload.data;\nelse if (typeof payload.response === 'string') raw = payload.response;\nelse raw = JSON.stringify(payload);\nif (!raw) throw new Error('RESEARCH_EMPTY_RESPONSE');\nlet generated = raw;\ntry { generated = JSON.parse(raw).response ?? raw; } catch {\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  const chunks = [];\n  let isNdjson = lines.length > 1;\n  for (const line of lines) {\n    try { chunks.push(JSON.parse(line)); } catch { isNdjson = false; break; }\n  }\n  if (isNdjson && chunks.every((chunk) => typeof chunk.response === 'string')) generated = chunks.map((chunk) => chunk.response).join('');\n}\nconst fenced = generated.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nconst candidate = String(fenced?.[1] ?? generated).trim();\nlet research;\nconst end = candidate.lastIndexOf('}');\nfor (const start of [0, ...[...candidate.matchAll(/\\{/g)].map((match) => match.index)]) {\n  if (end < start) continue;\n  try {\n    const parsed = JSON.parse(candidate.slice(start, end + 1));\n    const genuinelyEmpty = parsed?.recommended_topic === null && Array.isArray(parsed?.candidates) && parsed.candidates.length === 0;\n    if (parsed?.recommended_topic?.claims?.length || genuinelyEmpty) { research = parsed; break; }\n  } catch {}\n}\nif (!research) throw new Error('RESEARCH_INVALID_JSON: no valid JSON object with recommended_topic.claims found');\nconst provider = payload.research_provider ?? 'qwen-fallback';\nconst model = payload.research_model ?? 'tushin-agent:latest';\nreturn [{ json: { research, researched_at: new Date().toISOString(), research_provider: provider, model, requires_human_review: true } }];"
+        "jsCode": "const payload = $json;\nlet raw = '';\nif (typeof payload === 'string') raw = payload;\nelse if (typeof payload.body === 'string') raw = payload.body;\nelse if (typeof payload.data === 'string') raw = payload.data;\nelse if (typeof payload.response === 'string') raw = payload.response;\nelse raw = JSON.stringify(payload);\nif (!raw) throw new Error('RESEARCH_EMPTY_RESPONSE');\nlet generated = raw;\ntry { generated = JSON.parse(raw).response ?? raw; } catch {\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  const chunks = [];\n  let isNdjson = lines.length > 1;\n  for (const line of lines) {\n    try { chunks.push(JSON.parse(line)); } catch { isNdjson = false; break; }\n  }\n  if (isNdjson && chunks.every((chunk) => typeof chunk.response === 'string')) generated = chunks.map((chunk) => chunk.response).join('');\n}\nconst fenced = generated.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nconst candidate = String(fenced?.[1] ?? generated).trim();\nlet research;\nconst end = candidate.lastIndexOf('}');\nfor (const start of [0, ...[...candidate.matchAll(/\\{/g)].map((match) => match.index)]) {\n  if (end < start) continue;\n  try {\n    const parsed = JSON.parse(candidate.slice(start, end + 1));\n    const genuinelyEmpty = parsed?.recommended_topic === null && Array.isArray(parsed?.candidates) && parsed.candidates.length === 0;\n    if (parsed?.recommended_topic?.claims?.length || genuinelyEmpty) { research = parsed; break; }\n  } catch {}\n}\nif (!research) return [{ json: { parse_failed: true, parse_failure_reason: 'no valid JSON object with recommended_topic.claims found' } }];\nconst provider = payload.research_provider ?? 'qwen-fallback';\nconst model = payload.research_model ?? 'tushin-agent:latest';\nreturn [{ json: { research, researched_at: new Date().toISOString(), research_provider: provider, model, requires_human_review: true } }];"
       },
       "id": "normalize-research",
       "name": "Normalize Research Package",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
+    },
+    {
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "research-parsed-cond",
+              "leftValue": "={{$json.parse_failed !== true}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "research-parsed",
+      "name": "Research Parsed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2
     },
     {
       "position": [
@@ -408,7 +441,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "const original = $('Build Research Prompt').item.json;\nconst validation = $json;\nconst reasons = Array.isArray(validation.reasons) ? validation.reasons.join('; ') : (validation.failureCode ?? 'validation failed');\nconst prompt = `${original.prompt}\\n\\nYOUR PREVIOUS SUBMISSION WAS REJECTED for the following reason(s): ${reasons}. Fix these specific problems in your new answer -- stay strictly within the same topic scope and evidence set, and cite only source_url values that appear in the QUALIFIED SOURCE MATERIAL above.`;\nreturn [{json: {prompt, source_count: original.source_count, sources: original.sources, topic: original.topic, scoring_version: original.scoring_version, retry: true}}];"
+        "jsCode": "const original = $('Build Research Prompt').item.json;\nconst validation = $json;\nconst reasons = validation.parse_failed ? 'Your previous response could not be parsed as valid JSON matching the required schema.' : (Array.isArray(validation.reasons) ? validation.reasons.join('; ') : (validation.failureCode ?? 'validation failed'));\nconst prompt = `${original.prompt}\\n\\nYOUR PREVIOUS SUBMISSION WAS REJECTED for the following reason(s): ${reasons}. Fix these specific problems in your new answer -- stay strictly within the same topic scope and evidence set, and cite only source_url values that appear in the QUALIFIED SOURCE MATERIAL above.`;\nreturn [{json: {prompt, source_count: original.source_count, sources: original.sources, topic: original.topic, scoring_version: original.scoring_version, retry: true}}];"
       },
       "id": "build-research-retry-prompt",
       "name": "Build Research Retry Prompt",
@@ -553,12 +586,45 @@
         0
       ],
       "parameters": {
-        "jsCode": "const payload = $json;\nlet raw = '';\nif (typeof payload === 'string') raw = payload;\nelse if (typeof payload.body === 'string') raw = payload.body;\nelse if (typeof payload.data === 'string') raw = payload.data;\nelse if (typeof payload.response === 'string') raw = payload.response;\nelse raw = JSON.stringify(payload);\nif (!raw) throw new Error('RESEARCH_EMPTY_RESPONSE');\nlet generated = raw;\ntry { generated = JSON.parse(raw).response ?? raw; } catch {\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  const chunks = [];\n  let isNdjson = lines.length > 1;\n  for (const line of lines) {\n    try { chunks.push(JSON.parse(line)); } catch { isNdjson = false; break; }\n  }\n  if (isNdjson && chunks.every((chunk) => typeof chunk.response === 'string')) generated = chunks.map((chunk) => chunk.response).join('');\n}\nconst fenced = generated.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nconst candidate = String(fenced?.[1] ?? generated).trim();\nlet research;\nconst end = candidate.lastIndexOf('}');\nfor (const start of [0, ...[...candidate.matchAll(/\\{/g)].map((match) => match.index)]) {\n  if (end < start) continue;\n  try {\n    const parsed = JSON.parse(candidate.slice(start, end + 1));\n    const genuinelyEmpty = parsed?.recommended_topic === null && Array.isArray(parsed?.candidates) && parsed.candidates.length === 0;\n    if (parsed?.recommended_topic?.claims?.length || genuinelyEmpty) { research = parsed; break; }\n  } catch {}\n}\nif (!research) throw new Error('RESEARCH_INVALID_JSON: no valid JSON object with recommended_topic.claims found');\nconst provider = payload.research_provider ?? 'qwen-fallback';\nconst model = payload.research_model ?? 'tushin-agent:latest';\nreturn [{ json: { research, researched_at: new Date().toISOString(), research_provider: provider, model, requires_human_review: true } }];"
+        "jsCode": "const payload = $json;\nlet raw = '';\nif (typeof payload === 'string') raw = payload;\nelse if (typeof payload.body === 'string') raw = payload.body;\nelse if (typeof payload.data === 'string') raw = payload.data;\nelse if (typeof payload.response === 'string') raw = payload.response;\nelse raw = JSON.stringify(payload);\nif (!raw) throw new Error('RESEARCH_EMPTY_RESPONSE');\nlet generated = raw;\ntry { generated = JSON.parse(raw).response ?? raw; } catch {\n  const lines = raw.split(/\\r?\\n/).filter(Boolean);\n  const chunks = [];\n  let isNdjson = lines.length > 1;\n  for (const line of lines) {\n    try { chunks.push(JSON.parse(line)); } catch { isNdjson = false; break; }\n  }\n  if (isNdjson && chunks.every((chunk) => typeof chunk.response === 'string')) generated = chunks.map((chunk) => chunk.response).join('');\n}\nconst fenced = generated.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\nconst candidate = String(fenced?.[1] ?? generated).trim();\nlet research;\nconst end = candidate.lastIndexOf('}');\nfor (const start of [0, ...[...candidate.matchAll(/\\{/g)].map((match) => match.index)]) {\n  if (end < start) continue;\n  try {\n    const parsed = JSON.parse(candidate.slice(start, end + 1));\n    const genuinelyEmpty = parsed?.recommended_topic === null && Array.isArray(parsed?.candidates) && parsed.candidates.length === 0;\n    if (parsed?.recommended_topic?.claims?.length || genuinelyEmpty) { research = parsed; break; }\n  } catch {}\n}\nif (!research) return [{ json: { parse_failed: true, parse_failure_reason: 'no valid JSON object with recommended_topic.claims found' } }];\nconst provider = payload.research_provider ?? 'qwen-fallback';\nconst model = payload.research_model ?? 'tushin-agent:latest';\nreturn [{ json: { research, researched_at: new Date().toISOString(), research_provider: provider, model, requires_human_review: true } }];"
       },
       "id": "normalize-retry-research",
       "name": "Normalize Retry Research Package",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2
+    },
+    {
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "retry-research-parsed-cond",
+              "leftValue": "={{$json.parse_failed !== true}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "retry-research-parsed",
+      "name": "Retry Research Parsed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2
     },
     {
       "position": [
@@ -1697,7 +1763,25 @@
       "main": [
         [
           {
+            "node": "Research Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Research Parsed?": {
+      "main": [
+        [
+          {
             "node": "Validate Topic Research Package",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Research Retry Prompt",
             "type": "main",
             "index": 0
           }
@@ -1828,7 +1912,25 @@
       "main": [
         [
           {
+            "node": "Retry Research Parsed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retry Research Parsed?": {
+      "main": [
+        [
+          {
             "node": "Validate Retry Research Package",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tag Skip: Invalid Research",
             "type": "main",
             "index": 0
           }
