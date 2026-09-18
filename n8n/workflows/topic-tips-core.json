@@ -169,7 +169,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_TOPIC_RESEARCH_MODEL || 'claude-sonnet-5', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }], output_config: { effort: 'low' } } }}",
         "options": {
           "response": {
             "response": {
@@ -178,7 +178,7 @@
               "neverError": true
             }
           },
-          "timeout": 120000
+          "timeout": 180000
         }
       },
       "id": "research-claude",
@@ -442,7 +442,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_TOPIC_RESEARCH_MODEL || 'claude-sonnet-5', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }], output_config: { effort: 'low' } } }}",
         "options": {
           "response": {
             "response": {
@@ -451,7 +451,7 @@
               "neverError": true
             }
           },
-          "timeout": 120000
+          "timeout": 180000
         }
       },
       "id": "retry-research-claude",
@@ -1099,7 +1099,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_TOPIC_DIALOGUE_MODEL || 'claude-sonnet-5', max_tokens: Number($env.ANTHROPIC_MAX_TOKENS || 16000), messages: [{ role: 'user', content: $json.prompt }], output_config: { effort: 'low' } } }}",
         "options": {
           "response": {
             "response": {
@@ -1108,7 +1108,7 @@
               "neverError": true
             }
           },
-          "timeout": 120000
+          "timeout": 180000
         }
       },
       "id": "dialogue-claude",
@@ -1445,7 +1445,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { model: $env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 1024, messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_TOPIC_DIALOGUE_MODEL || 'claude-sonnet-5', max_tokens: 1024, messages: [{ role: 'user', content: $json.prompt }], output_config: { effort: 'low' } } }}",
         "options": {
           "response": {
             "response": {

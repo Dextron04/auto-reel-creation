@@ -1,6 +1,9 @@
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const OLLAMA_URL = 'https://ollama.dextron04.in/api/generate';
-const DEFAULT_ANTHROPIC_MODEL = 'claude-haiku-4-5-20251001';
+// Dedicated env var, decoupled from the legacy shows' shared ANTHROPIC_MODEL -- a live run proved
+// that flipping that shared var broke an unrelated pre-existing workflow. Sonnet's default
+// adaptive thinking needs output_config: {effort: 'low'} below to stay fast and inside max_tokens.
+const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-5';
 const DEFAULT_OLLAMA_MODEL = 'tushin-agent:latest';
 
 function safeText(value) {
@@ -133,8 +136,9 @@ async function classifyWithAnthropic({ fetchImpl, prompt, env }) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL,
+      model: env.ANTHROPIC_TOPIC_CLASSIFIER_MODEL || DEFAULT_ANTHROPIC_MODEL,
       max_tokens: 2000,
+      output_config: { effort: 'low' },
       messages: [{ role: 'user', content: prompt }],
     }),
   });

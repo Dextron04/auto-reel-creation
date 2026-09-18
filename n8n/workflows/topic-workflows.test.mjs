@@ -378,3 +378,33 @@ test('research retrieval, validation, and record calls request only the core\'s 
     }
   }
 });
+
+// A live run proved this matters: flipping the legacy shows' shared ANTHROPIC_MODEL to Sonnet to
+// improve topic-research quality also silently changed model behavior for two unrelated
+// pre-existing workflows that read the exact same variable, and one of them then timed out
+// (Sonnet's default adaptive thinking exceeded its node's fixed timeout, since it had never been
+// given the effort:'low' treatment the judge already had). Every generation call in the topic
+// cores must use its own dedicated env var, and any call defaulting to Sonnet must bound its
+// thinking effort so it can't blow its own timeout or token budget.
+test('every topic-core generation call is isolated from the legacy shows\' shared ANTHROPIC_MODEL, and every Sonnet-defaulting call bounds its own thinking effort', () => {
+  for (const { file, workflow } of cores) {
+    const dialogueNodeName = workflow.name === 'Topic Research: Trend Core' ? 'Write Peter and Stewie Dialogue with Claude' : 'Write Dialogue with Claude';
+    const sonnetDefaultingNodes = [
+      ['Research with Claude', 'ANTHROPIC_TOPIC_RESEARCH_MODEL'],
+      ['Retry Research with Claude', 'ANTHROPIC_TOPIC_RESEARCH_MODEL'],
+      [dialogueNodeName, 'ANTHROPIC_TOPIC_DIALOGUE_MODEL'],
+      ['Write Instagram Caption with Claude', 'ANTHROPIC_TOPIC_DIALOGUE_MODEL'],
+    ];
+    for (const [name, envVar] of sonnetDefaultingNodes) {
+      const node = workflow.nodes.find((n) => n.name === name);
+      assert.ok(node, `${file}: missing ${name}`);
+      assert.match(node.parameters.jsonBody, new RegExp(`\\$env\\.${envVar}\\s*\\|\\|\\s*'claude-sonnet-5'`), `${file}: ${name} must default to Sonnet on its own dedicated env var`);
+      assert.doesNotMatch(node.parameters.jsonBody, /\$env\.ANTHROPIC_MODEL\b/, `${file}: ${name} must not read the legacy shows' shared ANTHROPIC_MODEL`);
+      assert.match(node.parameters.jsonBody, /output_config:\s*\{\s*effort:\s*'low'\s*\}/, `${file}: ${name} defaults to Sonnet but never bounds its thinking effort`);
+    }
+    // The judge already had its own dedicated var and effort:'low' before this fix -- confirm it
+    // is untouched, not that this test is accidentally checking the same node twice.
+    const judge = workflow.nodes.find((n) => n.name === 'Judge Topic with Claude');
+    assert.match(judge.parameters.jsonBody, /\$env\.ANTHROPIC_JUDGE_MODEL/, file);
+  }
+});

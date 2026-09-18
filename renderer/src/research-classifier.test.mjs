@@ -30,7 +30,7 @@ test('classifies one constrained batch with Anthropic and preserves input IDs/or
     topic,
     items: items(),
     kind: 'borderline-source',
-    env: { ANTHROPIC_API_KEY: 'anthropic-test', ANTHROPIC_MODEL: 'claude-test' },
+    env: { ANTHROPIC_API_KEY: 'anthropic-test', ANTHROPIC_TOPIC_CLASSIFIER_MODEL: 'claude-test' },
     fetchImpl: async (url, options) => {
       calls.push({ url, options });
       return response({ content: [{ type: 'text', text: JSON.stringify([
@@ -46,6 +46,7 @@ test('classifies one constrained batch with Anthropic and preserves input IDs/or
   const payload = JSON.parse(calls[0].options.body);
   assert.equal(payload.model, 'claude-test');
   assert.equal(calls[0].options.headers['x-api-key'], 'anthropic-test');
+  assert.deepEqual(payload.output_config, { effort: 'low' }, 'Sonnet-class models need a bounded thinking effort or a long batch risks exhausting max_tokens on thinking alone');
   assert.deepEqual(result, [
     { id: 'source-a', in_scope: true, confidence: 0, reason: 'editor evidence' },
     { id: 'source-b', in_scope: false, confidence: 1, reason: 'not in scope' },
@@ -56,6 +57,25 @@ test('classifies one constrained batch with Anthropic and preserves input IDs/or
   assert.doesNotMatch(payload.messages[0].content, /MUST NOT APPEAR/);
   assert.doesNotMatch(payload.messages[0].content, /secret\.example/);
   assert.equal(Object.keys(result[0]).sort().join(','), 'confidence,id,in_scope,reason');
+});
+
+// A live run proved that this classifier reading the same ANTHROPIC_MODEL var as the unrelated
+// legacy shows is dangerous: flipping that shared var broke a workflow that has nothing to do
+// with topic research. The classifier must default to Sonnet on its own dedicated var, and must
+// not react to ANTHROPIC_MODEL at all.
+test('defaults to Sonnet on its own dedicated env var, independent of the legacy shows\' shared ANTHROPIC_MODEL', async () => {
+  const calls = [];
+  await classifyResearchItems({
+    topic,
+    items: [items()[0]],
+    env: { ANTHROPIC_API_KEY: 'key', ANTHROPIC_MODEL: 'claude-haiku-4-5-20251001' },
+    fetchImpl: async (url, options) => {
+      calls.push(options);
+      return response({ content: [{ type: 'text', text: '[{"id":"source-a","in_scope":true,"confidence":1,"reason":"ok"}]' }] });
+    },
+  });
+  const payload = JSON.parse(calls[0].body);
+  assert.equal(payload.model, 'claude-sonnet-5', 'must default to Sonnet, not fall back to the unrelated legacy ANTHROPIC_MODEL value');
 });
 
 test('accepts fenced JSON and clamps malformed confidence values', async () => {
