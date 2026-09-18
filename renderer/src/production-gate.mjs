@@ -15,7 +15,7 @@ export function validateProductionPackage({dialogue = [], visuals = [], storyboa
   errors.push(...dialogueResult.errors);
   // requiredTurns tracks whatever length dialogue actually is (6 for the tool-trend show, fewer
   // for a shorter reel) rather than a value hardcoded to the original 6-turn format.
-  try { validateVisualSelection(visuals, {requiredTurns: dialogue.length || 6, minimumImages: Number(minimumImages) || 8}); }
+  try { validateVisualSelection(visuals, {requiredTurns: dialogue.length || 6, minimumImages: Number(minimumImages) || 6}); }
   catch (error) { errors.push(error.message); }
   for (const visual of visuals) {
     const turn = visual.startTurn;

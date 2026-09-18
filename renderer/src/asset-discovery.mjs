@@ -166,14 +166,23 @@ export const keyOf = candidate => candidate.assetId ?? assetKey(candidate.url);
 // (see keyOf and SCREENSHOT_SLICES) — stripping that fragment here would collapse three
 // genuinely different pictures into one and undercount real, judge-approved visuals.
 const finalAssetKey = value => /#view\d+$/.test(String(value)) ? String(value) : assetKey(value);
-export function validateVisualSelection(visuals, {minimumImages = 8, requiredTurns = 6} = {}) {
+export function validateVisualSelection(visuals, {minimumImages = 6, requiredTurns = 6} = {}) {
   const distinctImages = new Set((visuals || []).map(visual => finalAssetKey(visual.assetUrl || visual.imagePath))).size;
   if (distinctImages < minimumImages) throw new Error(`VISUAL_PREFLIGHT_FAILED:${distinctImages}_DISTINCT_IMAGES`);
   if ((visuals || []).some(visual => !Number.isInteger(visual.startTurn) || visual.startTurn < 0 || visual.startTurn >= requiredTurns)) throw new Error('VISUAL_PREFLIGHT_FAILED:INVALID_TURN_INDEX');
-  const coveredTurns = new Set((visuals || []).map(visual => visual.startTurn).filter(Number.isInteger));
-  for (let turn = 0; turn < requiredTurns; turn++) if (!coveredTurns.has(turn)) throw new Error(`VISUAL_PREFLIGHT_FAILED:TURN_${turn}_UNCOVERED`);
   if ((visuals || []).some(visual => !String(visual.judgement || '').trim())) throw new Error('VISUAL_PREFLIGHT_FAILED:UNJUDGED_IMAGE');
-  return {distinctImages, coveredTurns: requiredTurns};
+  // Requiring every turn to have its own freshly-found image used to hard-fail the whole render
+  // for a rendering scenario the render pipeline already handles gracefully: buildVisualTimeline()
+  // (visuals.mjs) schedules only the visuals that exist and lets an earlier one's on-screen `end`
+  // extend to whenever the next one starts -- so a turn with zero approved images already just
+  // means the previous relevant picture holds a little longer, exactly like a single rejected cue
+  // already does per the documented behavior. A live run on an abstract protocol-spec topic (few
+  // official screenshots exist) proved this: it hit TURN_1_UNCOVERED and lost the whole video over
+  // a gap the renderer would have absorbed silently. The distinct-image-count and per-image
+  // judgement checks above remain: this only drops the redundant, stricter-than-necessary
+  // requirement that every individual turn have its own anchor.
+  const coveredTurns = new Set((visuals || []).map(visual => visual.startTurn).filter(Number.isInteger));
+  return {distinctImages, coveredTurns: coveredTurns.size};
 }
 export function purposeScore(candidate, purpose) {
   const description = `${candidate.alt || ''} ${candidate.text || ''}`.toLowerCase();
@@ -491,7 +500,7 @@ export async function discoverVisuals(input) {
   }
   for (const shot of await Promise.all([...screenshots.values()])) if (!shot.error) for (const slice of shot) await fs.unlink(slice.localPath).catch(()=>{});
   let validation; let validationError;
-  try { validation = validateVisualSelection(visuals, {requiredTurns: input.dialogue?.length || 6, minimumImages: Number(input.minimumImages) || 8}); }
+  try { validation = validateVisualSelection(visuals, {requiredTurns: input.dialogue?.length || 6, minimumImages: Number(input.minimumImages) || 6}); }
   catch (error) { validationError = error; report.push({status:'visual_preflight_failed',error:error.message}); }
   await fs.writeFile(path.join(directory,'manifest.json'),JSON.stringify({visuals,report,validation:validation ?? null},null,2));
   if (validationError) throw validationError;

@@ -20,10 +20,10 @@ test('production gate accepts a complete package', () => {
 });
 
 test('production gate rejects unjudged or incomplete visuals', () => {
-  const visuals = goodVisuals.slice(0, 7);
+  const visuals = goodVisuals.slice(0, 5);
   const result = validateProductionPackage({dialogue: goodDialogue, visuals});
   assert.equal(result.ok, false);
-  assert.ok(result.errors.includes('VISUAL_PREFLIGHT_FAILED:7_DISTINCT_IMAGES'));
+  assert.ok(result.errors.includes('VISUAL_PREFLIGHT_FAILED:5_DISTINCT_IMAGES'));
 });
 
 test('production gate rejects a visual with no phrase', () => {

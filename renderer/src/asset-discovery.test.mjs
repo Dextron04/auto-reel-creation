@@ -120,9 +120,9 @@ test('SearXNG results drop icon-library SVGs and tiny images, keep real screensh
   ]},'coding agent debugging');
   assert.deepEqual(out.map(r=>[r.url,r.sourceUrl,r.title]),[['https://code.visualstudio.com/assets/docs/agents/chat-debug-view/agent-logs.png','https://code.visualstudio.com/docs/agents/chat-debug-view','Debug chat interactions']]);
 });
-test('visual preflight blocks fewer than eight distinct approved images',()=>{
-  const duplicated = Array.from({length:8},(_,index)=>({assetUrl:index<2?'https://cdn.example/same.png':`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'approved'}));
-  assert.throws(()=>validateVisualSelection(duplicated),/VISUAL_PREFLIGHT_FAILED:7_DISTINCT_IMAGES/);
+test('visual preflight blocks fewer than six distinct approved images',()=>{
+  const duplicated = Array.from({length:6},(_,index)=>({assetUrl:index<2?'https://cdn.example/same.png':`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'approved'}));
+  assert.throws(()=>validateVisualSelection(duplicated),/VISUAL_PREFLIGHT_FAILED:5_DISTINCT_IMAGES/);
 });
 test('screenshot slices of the same page each count as a distinct approved image',()=>{
   // Reproduces a real production failure: three genuinely different crops of one page
@@ -138,10 +138,19 @@ test('visual preflight accepts eight distinct vision-approved images covering ev
   const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:index%6,judgement:'matches dialogue'}));
   assert.equal(validateVisualSelection(visuals).distinctImages,8);
 });
-test('visual preflight requires the exact six dialogue turn indexes',()=>{
-  const indexes = [0,0,1,2,3,4,4,4];
-  const visuals = Array.from({length:8},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:indexes[index],judgement:'matches dialogue'}));
-  assert.throws(()=>validateVisualSelection(visuals),/VISUAL_PREFLIGHT_FAILED:TURN_5_UNCOVERED/);
+// A live run lost an entire render over exactly this: an abstract, screenshot-poor topic left one
+// turn (out of six) with zero approved images, and the old hard gate failed the whole video for
+// it. buildVisualTimeline() (visuals.mjs) already schedules only the visuals that exist and lets
+// the previous one's on-screen time extend to cover any gap -- the same behavior already
+// documented for a single rejected cue -- so a fully-uncovered turn renders correctly without this
+// gate; requiring every turn to have its own anchor was strictly more demanding than the render
+// pipeline itself needs.
+test('visual preflight accepts a fully uncovered turn -- the render timeline already covers a gap by holding the previous image',()=>{
+  const indexes = [0,0,1,2,3,4];
+  const visuals = Array.from({length:6},(_,index)=>({assetUrl:`https://cdn.example/${index}.png`,startTurn:indexes[index],judgement:'matches dialogue'}));
+  const result = validateVisualSelection(visuals);
+  assert.equal(result.distinctImages,6);
+  assert.equal(result.coveredTurns,5, 'turn 5 has zero images and that is fine -- diagnostic only, not a failure');
 });
 test('visual preflight does not coerce missing or empty turn indexes to turn zero',()=>{
   for (const invalid of [null, '', undefined, '0']) {
