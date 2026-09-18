@@ -213,7 +213,13 @@ export async function validateResearchPackage({
     }
     evidenceByCandidate.set(index, cited);
 
-    if (format === 'trend' && !cited.some(({ evidence: source }) => isRecent(source, now))) {
+    // Only the recommended candidate (index 0) is checked for recency, the same scope
+    // NO_PRIMARY_SOURCE already uses below: it is the only candidate actually rendered unless the
+    // judge rejects it, at which point the next candidate becomes index 0 on a later run. Requiring
+    // every one of five candidates -- including four that may never be used -- to each
+    // independently satisfy this stacks failure probability without a matching safety benefit, the
+    // same trap the removed keyword checks fell into.
+    if (format === 'trend' && index === 0 && !cited.some(({ evidence: source }) => isRecent(source, now))) {
       reasons.push(`TREND_RECENT_EVIDENCE_REQUIRED:${index}`);
     }
   }

@@ -84,6 +84,25 @@ test('accepts a valid Trend candidate with traceable recent evidence', async () 
   assert.equal(result.valid, true);
 });
 
+// A live run found a real package rejected because backup candidates 1-4 -- never rendered unless
+// the judge rejects candidate 0 -- lacked recent evidence themselves, even though the recommended
+// candidate (index 0, the only one actually published this run) had it. Stacking a full quality
+// bar across every fallback candidate compounds failure probability without a matching safety
+// benefit. Recency is now scoped to the recommended candidate only, the same scope
+// NO_PRIMARY_SOURCE already uses.
+test('does not require trend recency from unused fallback candidates, only the recommended one', async () => {
+  const research = packageFor('git-cli', 'trend');
+  const staleUrl = 'https://git-scm.com/docs/git-worktree-legacy';
+  const stale = candidate('git-cli', { topic: 'A different stale angle', claims: [{ claim_id: 'c1', statement: 'Old context.', source_url: staleUrl }] });
+  research.candidates = [research.recommended_topic, stale];
+  const evidence = [
+    { ...evidenceFor('git-cli')[0], title: 'Git worktree v2.52 adds linked checkout support', summary: 'The dated Git worktree changelog announces the linked checkout change.' },
+    { source_url: staleUrl, title: 'Older git worktree background', summary: 'Background context.', source_type: 'repository', published_at: '2020-01-01T00:00:00.000Z' },
+  ];
+  const result = await validateResearchPackage({ topicSlug: 'git-cli', format: 'trend', evidence, research });
+  assert.equal(result.valid, true, JSON.stringify(result.reasons));
+});
+
 // A live production run found a genuinely concrete, well-evidenced Trend candidate rejected
 // outright because its wording ("drop", "design", "scale", "validate", "migrating") didn't
 // contain any word from a ~20-word fixed verb whitelist the old check required. That whitelist
