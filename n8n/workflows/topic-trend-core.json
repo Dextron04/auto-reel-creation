@@ -1581,6 +1581,41 @@
         0
       ],
       "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/distribution/publish-event",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { topicSlug: $('When Executed by Wrapper').item.json.topicSlug, format: 'trend', mediaId: $json.mediaId, permalink: $json.permalink } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "record-distribution-publish",
+      "name": "Record Distribution Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
         "jsCode": "const context = $items('Build Dialogue Audio and Subtitle Render Job')[0]?.json ?? {};\nconst topic = context.research?.recommended_topic ?? {};\nconst rawTitle = `${topic.tool_name ?? topic.topic ?? 'Dev Trend'}: ${topic.hook ?? ''}`.trim();\nconst title = rawTitle.length > 100 ? `${rawTitle.slice(0, 99).trimEnd()}…` : rawTitle;\nconst caption = String($json.caption ?? '').trim();\nconst description = /#shorts/i.test(caption) ? caption : `${caption}\\n\\n#Shorts`.trim();\nreturn [{json: {title, description, outputLocation: $json.outputLocation}}];\n"
       },
       "id": "build-youtube-metadata",
@@ -2363,6 +2398,17 @@
           },
           {
             "node": "Build YouTube Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to Instagram": {
+      "main": [
+        [
+          {
+            "node": "Record Distribution Publish",
             "type": "main",
             "index": 0
           }

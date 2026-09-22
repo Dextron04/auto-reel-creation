@@ -1,7 +1,7 @@
 import path from 'node:path'
 
-const GRAPH_VERSION = () => process.env.INSTAGRAM_GRAPH_API_VERSION || 'v21.0'
-const graphBase = () => `https://graph.facebook.com/${GRAPH_VERSION()}`
+export const GRAPH_VERSION = () => process.env.INSTAGRAM_GRAPH_API_VERSION || 'v21.0'
+export const graphBase = () => `https://graph.facebook.com/${GRAPH_VERSION()}`
 const DEFAULT_POLL_INTERVAL_MS = 5000
 const DEFAULT_POLL_BUDGET_MS = 150000
 
@@ -10,7 +10,7 @@ export function buildVideoUrl(outputLocation, baseUrl = process.env.PUBLIC_MEDIA
   return `${baseUrl.replace(/\/$/, '')}/output/${path.basename(outputLocation)}`
 }
 
-async function graphRequest(fetchImpl, method, urlPath, params) {
+export async function graphRequest(fetchImpl, method, urlPath, params) {
   const url = new URL(`${graphBase()}${urlPath}`)
   const body = new URLSearchParams(params)
   if (method === 'GET') { for (const [key, value] of body) url.searchParams.set(key, value) }

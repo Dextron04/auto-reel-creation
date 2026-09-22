@@ -25,6 +25,7 @@ node --test n8n/workflows/research-workflow.test.mjs
 node --test n8n/workflows/dev-tips-workflow.test.mjs
 node --test n8n/workflows/topic-workflows.test.mjs
 node --test n8n/workflows/topic-round-robin-orchestrator.test.mjs
+node --test n8n/workflows/distribution-daily-report.test.mjs
 node --test scripts/build-topic-workflows.test.mjs
 
 echo "Running deployment regression suite..."

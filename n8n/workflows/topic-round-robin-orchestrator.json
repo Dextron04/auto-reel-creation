@@ -40,14 +40,38 @@
     },
     {
       "parameters": {
-        "jsCode": "// Round-robin state lives in this workflow's static data so it survives across scheduled\n// firings indefinitely (unlike the per-execution research-cycle guard in the topic workers,\n// this must NOT reset per execution -- it is the whole point of the rotation).\nconst roster = [{\"workflowId\": \"aMAQt4XFc3dQoJ18\", \"workflowName\": \"Agentic AI & Coding Agents: Tips Reel\"}, {\"workflowId\": \"544pSlOJiOpgWcdu\", \"workflowName\": \"Agentic AI & Coding Agents: Trend Reel\"}, {\"workflowId\": \"31QYT1GhUh6qji9f\", \"workflowName\": \"Editor & IDE Power Features: Tips Reel\"}, {\"workflowId\": \"8BDCLy1n57fBtArF\", \"workflowName\": \"Editor & IDE Power Features: Trend Reel\"}, {\"workflowId\": \"oabUY0nYfgqfVPOw\", \"workflowName\": \"Git & CLI Tricks: Tips Reel\"}, {\"workflowId\": \"cON3J0BYweklJx9Y\", \"workflowName\": \"Git & CLI Tricks: Trend Reel\"}, {\"workflowId\": \"8qJ45bzEhYJcPMcX\", \"workflowName\": \"Debugging & Observability: Tips Reel\"}, {\"workflowId\": \"WERLRUMuwApEAxOL\", \"workflowName\": \"Debugging & Observability: Trend Reel\"}, {\"workflowId\": \"e0TxVmd9Oo92bwRJ\", \"workflowName\": \"Databases & Performance: Tips Reel\"}, {\"workflowId\": \"L7kYirg3MkRT4iVi\", \"workflowName\": \"Databases & Performance: Trend Reel\"}];\nconst staticData = $getWorkflowStaticData('global');\nconst currentIndex = Number(staticData.nextTopicIndex ?? 0) % roster.length;\nstaticData.nextTopicIndex = (currentIndex + 1) % roster.length;\nconst selected = roster[currentIndex];\nreturn [{json: {workflowId: selected.workflowId, workflowName: selected.workflowName, rotationIndex: currentIndex, rosterSize: roster.length}}];\n"
+        "method": "GET",
+        "url": "http://renderer:3001/v1/distribution/weights",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "orchestrator-fetch-weights",
+      "name": "Fetch Distribution Weights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Weighted picker driven by real Instagram analytics (n8n/workflows/distribution-daily-report.json\n// runs the daily job that computes these weights from Reels engagement). Round-robin state lives\n// in this workflow's static data so it survives across scheduled firings indefinitely -- unlike\n// the per-execution research-cycle guard in the topic workers, this must NOT reset per execution.\n// It is also the fallback path whenever fresh weights aren't available for every arm yet (renderer\n// unreachable, or the very first days before enough posts exist to weigh), so early/degraded runs\n// stay evenly distributed instead of getting stuck on stale or partial data.\nconst roster = [{\"workflowId\": \"aMAQt4XFc3dQoJ18\", \"workflowName\": \"Agentic AI & Coding Agents: Tips Reel\", \"slug\": \"agentic-ai\", \"format\": \"tips\"}, {\"workflowId\": \"544pSlOJiOpgWcdu\", \"workflowName\": \"Agentic AI & Coding Agents: Trend Reel\", \"slug\": \"agentic-ai\", \"format\": \"trend\"}, {\"workflowId\": \"31QYT1GhUh6qji9f\", \"workflowName\": \"Editor & IDE Power Features: Tips Reel\", \"slug\": \"editor-ide\", \"format\": \"tips\"}, {\"workflowId\": \"8BDCLy1n57fBtArF\", \"workflowName\": \"Editor & IDE Power Features: Trend Reel\", \"slug\": \"editor-ide\", \"format\": \"trend\"}, {\"workflowId\": \"oabUY0nYfgqfVPOw\", \"workflowName\": \"Git & CLI Tricks: Tips Reel\", \"slug\": \"git-cli\", \"format\": \"tips\"}, {\"workflowId\": \"cON3J0BYweklJx9Y\", \"workflowName\": \"Git & CLI Tricks: Trend Reel\", \"slug\": \"git-cli\", \"format\": \"trend\"}, {\"workflowId\": \"8qJ45bzEhYJcPMcX\", \"workflowName\": \"Debugging & Observability: Tips Reel\", \"slug\": \"debugging-observability\", \"format\": \"tips\"}, {\"workflowId\": \"WERLRUMuwApEAxOL\", \"workflowName\": \"Debugging & Observability: Trend Reel\", \"slug\": \"debugging-observability\", \"format\": \"trend\"}, {\"workflowId\": \"e0TxVmd9Oo92bwRJ\", \"workflowName\": \"Databases & Performance: Tips Reel\", \"slug\": \"databases-performance\", \"format\": \"tips\"}, {\"workflowId\": \"L7kYirg3MkRT4iVi\", \"workflowName\": \"Databases & Performance: Trend Reel\", \"slug\": \"databases-performance\", \"format\": \"trend\"}];\nconst staticData = $getWorkflowStaticData('global');\n\nfunction roundRobinFallback() {\n  const currentIndex = Number(staticData.nextTopicIndex ?? 0) % roster.length;\n  staticData.nextTopicIndex = (currentIndex + 1) % roster.length;\n  return {...roster[currentIndex], weight: null, rotationIndex: currentIndex, selectionMode: 'round-robin'};\n}\n\nconst fetchedWeights = Array.isArray($json?.weights) ? $json.weights : [];\nconst weightByKey = new Map(fetchedWeights.map((entry) => [`${entry.slug}:${entry.format}`, Number(entry.weight)]));\nconst everyArmWeighted = roster.every((entry) => weightByKey.has(`${entry.slug}:${entry.format}`));\n\nlet selected = null;\nif (everyArmWeighted) {\n  const weighted = roster.map((entry) => ({...entry, weight: weightByKey.get(`${entry.slug}:${entry.format}`)}));\n  const totalWeight = weighted.reduce((sum, entry) => sum + Math.max(entry.weight, 0), 0);\n  if (totalWeight > 0) {\n    let roll = Math.random() * totalWeight;\n    const picked = weighted.find((entry) => { roll -= Math.max(entry.weight, 0); return roll <= 0; }) ?? weighted[weighted.length - 1];\n    selected = {...picked, rotationIndex: null, selectionMode: 'weighted'};\n  }\n}\nif (!selected) selected = roundRobinFallback();\n\nreturn [{json: {workflowId: selected.workflowId, workflowName: selected.workflowName, topicSlug: selected.slug, format: selected.format, weight: selected.weight ?? null, rotationIndex: selected.rotationIndex, rosterSize: roster.length, selectionMode: selected.selectionMode}}];\n"
       },
       "id": "orchestrator-pick-next-topic",
       "name": "Pick Next Topic Worker",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        240,
+        480,
         0
       ]
     },
@@ -65,7 +89,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1,
       "position": [
-        480,
+        720,
         0
       ]
     }
@@ -75,7 +99,7 @@
       "main": [
         [
           {
-            "node": "Pick Next Topic Worker",
+            "node": "Fetch Distribution Weights",
             "type": "main",
             "index": 0
           }
@@ -83,6 +107,17 @@
       ]
     },
     "Run Orchestrator from Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Fetch Distribution Weights",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Distribution Weights": {
       "main": [
         [
           {
@@ -110,5 +145,5 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "e70c030b-b128-4daa-8be8-3e0d33ef5374"
+  "versionId": "8c4e2f61-6b4a-4a8f-9c2d-1f7a5e3d9b02"
 }
