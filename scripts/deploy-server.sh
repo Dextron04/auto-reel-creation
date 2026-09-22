@@ -11,8 +11,14 @@ if [ ! -f .env.prod ]; then
   exit 1
 fi
 
+echo "Installing renderer dependencies..."
+npm --prefix renderer ci
+
 echo "Running renderer regression suite..."
 npm --prefix renderer test
+
+echo "Installing dashboard dependencies..."
+npm --prefix dashboard ci
 
 echo "Running dashboard regression suite..."
 npm --prefix dashboard test
