@@ -89,7 +89,22 @@ status=0
 check renderer http://127.0.0.1:3001/health || status=1
 check n8n http://127.0.0.1:5678/healthz || status=1
 check dashboard http://127.0.0.1:4000/health || status=1
-if ! node scripts/check-dashboard-status.mjs http://127.0.0.1:4000/api/status; then
+
+# n8n's own /healthz turns green before its workflow-serving API layer has finished warming up --
+# a deploy that happens to recreate the n8n container (e.g. any .env.prod change, not just an n8n
+# code change) can hit this integration check seconds before n8n is actually ready to answer it,
+# failing a deploy whose services are all otherwise fine. Retry like the plain health checks above.
+dashboard_integration_ready=0
+attempt=1
+while [ "$attempt" -le 30 ]; do
+  if node scripts/check-dashboard-status.mjs http://127.0.0.1:4000/api/status; then
+    dashboard_integration_ready=1
+    break
+  fi
+  sleep 2
+  attempt=$((attempt + 1))
+done
+if [ "$dashboard_integration_ready" -ne 1 ]; then
   status=1
 fi
 
