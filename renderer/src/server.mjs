@@ -7,6 +7,11 @@ import {discoverVisuals} from './asset-discovery.mjs';
 import {publishToInstagram, diagnoseInstagramContainer} from './publish-instagram.mjs';
 import {publishToYouTube} from './publish-youtube.mjs';
 import {readTopicHistory, recordTopic, selectUnusedTopic} from './topic-history.mjs';
+import {recordDistributionEvent, readDistributionLog} from './distribution-log.mjs';
+import {ARMS, armKey, readWeights, writeWeights, summarizeArmPerformance, computeWeights} from './distribution-weights.mjs';
+import {buildDistributionReport, writeDistributionReport, readDistributionReport, attachNarrative} from './distribution-report.mjs';
+import {fetchMediaInsights as defaultFetchMediaInsights} from './instagram-insights.mjs';
+import {sendDistributionEmail as defaultSendDistributionEmail} from './distribution-email.mjs';
 import {discoverTrends} from './trend-discovery.mjs';
 import {buildStoryboard, scoreVisual, approveStoryboard} from './visual-preflight.mjs';
 import {rankConcepts} from './editorial.mjs';
@@ -58,6 +63,8 @@ export function createApp(dependencies = {}) {
   const writeResearchRecord = dependencies.writeResearchRecord
     ?? dependencies.recordWriter
     ?? defaultWriteResearchRecord;
+  const fetchMediaInsights = dependencies.fetchMediaInsights ?? defaultFetchMediaInsights;
+  const sendDistributionEmail = dependencies.sendDistributionEmail ?? defaultSendDistributionEmail;
 
   const app = express();
   app.use(express.json({limit: '256kb'}));
@@ -114,6 +121,58 @@ export function createApp(dependencies = {}) {
       res.json({...req.body, research: selectUnusedTopic(req.body?.research, history)});
     }
     catch (error) { res.status(400).json({error: error.message}); }
+  });
+  app.post('/v1/distribution/publish-event', async (req, res) => {
+    try { res.json({recorded: true, log: await recordDistributionEvent(req.body)}); }
+    catch (error) { res.status(400).json({error: error.message}); }
+  });
+  app.get('/v1/distribution/weights', async (req, res) => {
+    try {
+      const {weights, updatedAt} = await readWeights();
+      res.json({weights: ARMS.map((arm) => ({...arm, weight: weights[armKey(arm)]})), updatedAt});
+    } catch (error) { res.status(400).json({error: error.message}); }
+  });
+  // Fetches fresh Instagram insights for every logged publish, recomputes per-topic engagement
+  // stats and weights (falling back to the previous weights untouched when too few arms have
+  // enough samples yet), and writes the day's report -- this is the one call the daily n8n
+  // workflow makes; everything else here just exposes its inputs/outputs for that workflow.
+  app.post('/v1/distribution/analyze', async (req, res) => {
+    try {
+      const date = req.body?.date ?? new Date().toISOString().slice(0, 10);
+      const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN;
+      const log = await readDistributionLog();
+      const {weights: previousWeights} = await readWeights();
+      // Only the real Graph API fetcher needs a token -- a caller-injected fetchMediaInsights
+      // (tests, or a future alternate source) owns its own auth precondition.
+      if (!dependencies.fetchMediaInsights && log.length && !accessToken) throw new Error('INSTAGRAM_NOT_CONFIGURED');
+      const warnings = [];
+      const insightsByMediaId = {};
+      await Promise.all(log.map(async (entry) => {
+        try { insightsByMediaId[entry.mediaId] = await fetchMediaInsights({mediaId: entry.mediaId, accessToken}); }
+        catch (error) { warnings.push(`${entry.mediaId}: ${error.message}`); }
+      }));
+      const stats = summarizeArmPerformance({log, insightsByMediaId});
+      const weightResult = computeWeights({stats, previousWeights});
+      await writeWeights({weights: weightResult.weights, updatedAt: weightResult.updatedAt});
+      const report = buildDistributionReport({date, weightResult});
+      await writeDistributionReport({date, report});
+      res.json({...report, warnings});
+    } catch (error) { res.status(400).json({error: error.message}); }
+  });
+  app.get('/v1/distribution/report', async (req, res) => {
+    try { res.json(await readDistributionReport(req.query?.date ?? new Date().toISOString().slice(0, 10))); }
+    catch (error) { res.status(400).json({error: error.message}); }
+  });
+  app.post('/v1/distribution/report/narrative', async (req, res) => {
+    try { res.json(await attachNarrative(req.body)); }
+    catch (error) { res.status(400).json({error: error.message}); }
+  });
+  app.post('/v1/distribution/report/email', async (req, res) => {
+    try {
+      const date = req.body?.date ?? new Date().toISOString().slice(0, 10);
+      const report = await readDistributionReport(date);
+      res.json(await sendDistributionEmail({report}));
+    } catch (error) { res.status(400).json({error: error.message}); }
   });
   app.post('/v1/editorial/dry-run', async (req, res) => {
     try {

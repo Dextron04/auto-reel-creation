@@ -1,0 +1,300 @@
+{
+  "id": "DistributionDailyReport",
+  "name": "Distribution Daily Report",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 23 * * *"
+            }
+          ]
+        }
+      },
+      "id": "distribution-schedule-trigger",
+      "name": "Run Daily at 23:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "distribution-daily-report-run",
+        "options": {}
+      },
+      "id": "distribution-dashboard-manual-trigger",
+      "name": "Run Report from Dashboard",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "5b8f0a3e-9d21-4b7c-8a6f-2c9e6d1a7b44"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/distribution/analyze",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { date: $now.toFormat('yyyy-MM-dd') } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "distribution-analyze",
+      "name": "Analyze Distribution Performance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Turns the renderer's structured stats into a plain-English prompt so Claude can write the\n// actual daily report -- the numbers themselves come only from the renderer's analysis, never\n// from the model, so a bad Claude response can only produce bad prose, never a bad weight.\nconst report = $json;\nfunction pct(x) { return `${(Number(x) * 100).toFixed(1)}%`; }\nfunction label(arm) { return arm ? `${arm.slug} (${arm.format})` : 'unknown'; }\n\nlet summary;\nif (!report.weightsChanged) {\n  summary = `Not enough data yet to compare topics today (reason: ${report.skipReason}). Weights are unchanged from before.`;\n} else {\n  const lines = (report.leaderboard || []).map((arm, index) => `${index + 1}. ${label(arm)} -- engagement rate ${pct(arm.avgEngagementRate)} across ${arm.sampleCount} post(s) this window, weight ${pct(arm.previousWeight)} -> ${pct(arm.weight)}`).join('\\n');\n  summary = `Top performer: ${label(report.topPerformer)} (engagement rate ${pct(report.topPerformer?.avgEngagementRate)}).\\nBottom performer: ${label(report.bottomPerformer)} (engagement rate ${pct(report.bottomPerformer?.avgEngagementRate)}).\\n\\nFull ranking:\\n${lines}`;\n}\nconst untouched = (report.arms || []).filter((arm) => arm.sampleCount === 0).map(label).join(', ');\n\nconst prompt = `Write a short, plain-English daily report (4-8 sentences) for ${report.date} about an Instagram Reels topic-distribution experiment. Five developer-content topics, each published in a \"Tips\" and \"Trend\" format (10 arms total), are dispatched with probability proportional to a weight that shifts toward whichever arm gets real Instagram engagement (likes+comments+shares+saves divided by reach), recomputed once per day.\\n\\n${summary}\\n\\n${untouched ? `No fresh posts yet this window for: ${untouched}.\\n\\n` : ''}Explain plainly which topic did statistically well today and how the weight distribution is moving as a result of that. No headers, no bullet points, no markdown -- just clear prose a busy person can skim in ten seconds. Do not invent any number not given above.`;\n\nreturn [{json: {prompt, report}}];\n"
+      },
+      "id": "distribution-build-narrative-prompt",
+      "name": "Build Narrative Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{$env.ANTHROPIC_API_KEY}}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "={{$env.ANTHROPIC_VERSION || '2023-06-01'}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { model: $env.ANTHROPIC_DISTRIBUTION_MODEL || 'claude-haiku-4-5-20251001', max_tokens: 512, messages: [{ role: 'user', content: $json.prompt }] } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json",
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "distribution-narrative-claude",
+      "name": "Write Distribution Report with Claude",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "position": [
+        720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Claude only writes the sentence; if the call fails or returns something unusable, this falls\n// back to a deterministic one-line summary built straight from the structured report so a report\n// is always produced (it just reads less naturally without Claude's help).\nconst context = $items('Build Narrative Prompt')[0]?.json ?? {};\nconst report = context.report ?? {};\nconst statusCode = Number($json.statusCode ?? 200);\nconst body = $json.body ?? $json;\nconst text = Array.isArray(body?.content)\n  ? body.content.filter((block) => block?.type === 'text' && typeof block.text === 'string').map((block) => block.text).join('\\n').trim()\n  : '';\n\nlet narrative;\nlet narrativeSource = 'fallback';\nif (statusCode >= 200 && statusCode < 300 && text) {\n  narrative = text;\n  narrativeSource = 'claude';\n}\nif (!narrative) {\n  narrative = report.weightsChanged\n    ? `Top performer: ${report.topPerformer?.slug} (${report.topPerformer?.format}). Bottom performer: ${report.bottomPerformer?.slug} (${report.bottomPerformer?.format}). Weights updated for ${report.date}.`\n    : `Not enough data yet to compare topics as of ${report.date} (${report.skipReason ?? 'insufficient samples'}). Weights unchanged.`;\n}\nreturn [{json: {date: report.date, narrative, narrativeSource}}];\n"
+      },
+      "id": "distribution-route-narrative",
+      "name": "Route Narrative",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/distribution/report/narrative",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { date: $json.date, narrative: $json.narrative, narrativeSource: $json.narrativeSource } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "distribution-attach-narrative",
+      "name": "Attach Narrative to Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://renderer:3001/v1/distribution/report/email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { date: $json.date } }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "distribution-email-report",
+      "name": "Email Distribution Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        100
+      ]
+    }
+  ],
+  "connections": {
+    "Run Daily at 23:30": {
+      "main": [
+        [
+          {
+            "node": "Analyze Distribution Performance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Report from Dashboard": {
+      "main": [
+        [
+          {
+            "node": "Analyze Distribution Performance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Distribution Performance": {
+      "main": [
+        [
+          {
+            "node": "Build Narrative Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Narrative Prompt": {
+      "main": [
+        [
+          {
+            "node": "Write Distribution Report with Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Distribution Report with Claude": {
+      "main": [
+        [
+          {
+            "node": "Route Narrative",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Narrative": {
+      "main": [
+        [
+          {
+            "node": "Attach Narrative to Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Narrative to Report": {
+      "main": [
+        [
+          {
+            "node": "Email Distribution Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "3f7a9c2e-1d6b-4e58-8a04-6c2b9f7e5a13"
+}
