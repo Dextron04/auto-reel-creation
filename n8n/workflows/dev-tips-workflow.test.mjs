@@ -250,9 +250,9 @@ test('Claude tips-dialogue router enforces four turns and a tight word budget', 
 
   // A real production run (2026-09-16) returned a well-formed, on-topic dialogue that measured
   // 23.04s of actual audio for 48 words -- about 2.08 words/second for this show's TTS voice, far
-  // slower than this code originally assumed. The word-count ceiling here (36, about 8 words of
+  // slower than this code originally assumed. The word-count ceiling here (37, about 9 words of
   // headway over the prompt's own 20-28 target -- not baked into the prompt itself, just the
-  // acceptance check) tops out around 17.3s at that measured rate, safely under render.mjs's 18s
+  // acceptance check) tops out around 17.8s at that measured rate, ~0.2s under render.mjs's 18s
   // cap, so a dialogue this long is caught HERE -- before a TTS call, an image search, and the
   // editorial gate all run on a script render.mjs would reject anyway.
   const realProductionTurns = [
@@ -263,6 +263,20 @@ test('Claude tips-dialogue router enforces four turns and a tight word budget', 
   ];
   const realProduction = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: realProductionTurns})}]}});
   assert.equal(realProduction[0].json.use_qwen_fallback, true, 'a 48-word dialogue measures ~23s at this voice\'s real speech rate and must be rejected before it reaches render');
+
+  // A second real production run (2026-09-22) rejected a genuinely good, on-topic 37-word dialogue
+  // by exactly one word (ceiling was 36), routing to the Qwen fallback -- which then failed because
+  // the Ollama Cloudflare Tunnel happened to be down, losing the whole run for a 1-word overage.
+  // 37/2.08 =~ 17.8s, still under the 18s render cap, so this one word of headway is genuinely safe
+  // margin, not a workaround -- do not raise this further without re-checking against that cap.
+  const oneWordOverPreviousCeiling = [
+    {speaker: 'peter', text: 'Your app already has free tracing data hiding inside it.'},
+    {speaker: 'stewie', text: 'Nobody wants to hand-write spans through their whole codebase.'},
+    {speaker: 'peter', text: 'Auto-instrumentation skips that, giving full traces with zero manual code.'},
+    {speaker: 'stewie', text: 'Fine, that actually beats my print-statement debugging habit.'},
+  ];
+  const previouslyRejected = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: oneWordOverPreviousCeiling})}]}});
+  assert.equal(previouslyRejected[0].json.use_qwen_fallback, false, 'a 37-word dialogue is within the render cap and must not be bounced to the fallback');
 
   const wrongCount = run({statusCode: 200, body: {content: [{type: 'text', text: JSON.stringify({turns: validTurns.slice(0, 2)})}]}});
   assert.equal(wrongCount[0].json.use_qwen_fallback, true);
