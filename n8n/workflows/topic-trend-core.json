@@ -75,7 +75,7 @@
               "responseFormat": "json"
             }
           },
-          "timeout": 30000
+          "timeout": 300000
         }
       },
       "id": "fetch-topic-research-sources",
